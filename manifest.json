@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "AI Language Learning Companion",
+  "version": "1.0.0",
+  "description": "Learn languages in context while browsing. Save words, get AI explanations, and review with spaced repetition.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "https://api.perplexity.ai/*",
+    "https://api.dictionaryapi.dev/*",
+    "https://translate.googleapis.com/*",
+    "https://api.mymemory.translated.net/*",
+    "https://*.workers.dev/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_1",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*/*", "http://*/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["utils/youtube-handler.js"],
+      "matches": ["https://*/*", "http://*/*"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Language Learning Companion"
+  },
+  "options_ui": {
+    "page": "dashboard/dashboard.html",
+    "open_in_tab": true
+  }
+}

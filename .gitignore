@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+desktop/node_modules/
+server/node_modules/
+
+# Electron build output
+desktop/dist/
+desktop/out/
+
+# Wrangler / Cloudflare
+server/.wrangler/
+server/.dev.vars
+
+# Environment / secrets
+.env
+.env.local
+.env.*
+*.env
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Zip artifacts
+*.zip
+
+# Editor
+.vscode/
+.idea/

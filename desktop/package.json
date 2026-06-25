@@ -1,0 +1,36 @@
+{
+  "name": "vocabai-desktop",
+  "version": "0.1.0-beta.1",
+  "description": "VocabAI — study your vocabulary",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.vocabai.desktop",
+    "productName": "VocabAI",
+    "mac": {
+      "category": "public.app-category.education",
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }]
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "preload-popup.js",
+      "renderer/**/*"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}

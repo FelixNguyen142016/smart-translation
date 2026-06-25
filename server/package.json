@@ -1,0 +1,16 @@
+{
+  "name": "smart-translation-api",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 execute smart-translation-db --file=./schema.sql --remote"
+  },
+  "dependencies": {
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.80.0"
+  }
+}

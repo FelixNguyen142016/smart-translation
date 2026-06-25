@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>VocabAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --brand:        #06b6d4;
+      --brand-2:      #38bdf8;
+      --brand-deep:   #0891b2;
+      --brand-soft:   rgba(6,182,212,0.07);
+      --brand-border: rgba(6,182,212,0.18);
+      --brand-rgb:    6,182,212;
+
+      --glass-bg:     rgba(255,255,255,0.75);
+      --glass-border: rgba(255,255,255,0.35);
+      --glass-shadow: 0 12px 30px rgba(0,0,0,0.12);
+
+      --text-main:    #0f172a;
+      --text-muted:   #64748b;
+      --text-soft:    #94a3b8;
+      --bg-page:      #f8fafc;
+      --divider:      linear-gradient(90deg, transparent, rgba(6,182,212,0.35), transparent);
+    }
+
+    /* ── Dark mode ── */
+    html.dark {
+      --glass-bg:     rgba(15,23,42,0.65);
+      --glass-border: rgba(255,255,255,0.08);
+      --glass-shadow: 0 12px 30px rgba(0,0,0,0.4);
+      --text-main:    #e2e8f0;
+      --text-muted:   #94a3b8;
+      --text-soft:    #64748b;
+      --bg-page:      #0f172a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 320px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--text-main);
+      background:
+        radial-gradient(circle at 20% 20%, rgba(var(--brand-rgb),0.12) 0%, transparent 50%),
+        radial-gradient(circle at 80% 80%, rgba(var(--brand-rgb),0.06) 0%, transparent 50%),
+        var(--bg-page);
+      min-height: 100px;
+    }
+
+    /* ── Header ── */
+    .header {
+      padding: 14px 16px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--glass-border);
+    }
+    .logo {
+      font-size: 16px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.2px;
+    }
+    .header-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-soft);
+    }
+
+    /* ── Word list ── */
+    .word-list {
+      list-style: none;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    .word-item {
+      padding: 11px 16px;
+      position: relative;
+    }
+    .word-item + .word-item::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 1px;
+      background: var(--divider);
+    }
+
+    .word-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--brand);
+      letter-spacing: -0.1px;
+      margin-bottom: 2px;
+    }
+    .word-translation {
+      font-size: 12px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.4;
+    }
+
+    /* ── Empty state ── */
+    .empty-state {
+      text-align: center;
+      color: var(--text-soft);
+      padding: 28px 16px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    /* ── Dashboard button ── */
+    .btn-dashboard {
+      display: block;
+      width: calc(100% - 24px);
+      margin: 12px auto;
+      padding: 10px 16px;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: white;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(var(--brand-rgb), 0.3);
+      transition: all 0.15s ease;
+      letter-spacing: 0.01em;
+    }
+    .btn-dashboard:hover {
+      filter: brightness(0.92);
+      box-shadow: 0 4px 16px rgba(var(--brand-rgb), 0.4);
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="logo">VocabAI</span>
+    <span class="header-label">Recent Vocabulary</span>
+  </div>
+
+  <div id="word-list" class="word-list"></div>
+
+  <button id="open-dashboard" class="btn-dashboard">Open Dashboard</button>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

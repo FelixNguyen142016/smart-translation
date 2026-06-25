@@ -1,0 +1,27 @@
+name = "smart-translation-api"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ── D1 Database (vocab, users, auth) ──────────────────────────────────────────
+# Run: npx wrangler d1 create smart-translation-db
+# Then paste the database_id here.
+[[d1_databases]]
+binding = "DB"
+database_name = "smart-translation-db"
+database_id = "624bc5ad-25ff-4296-be2c-847112efe75b"
+
+# ── KV Namespace (AI result cache + rate limit counters) ──────────────────────
+# Run: npx wrangler kv:namespace create CACHE
+# Run: npx wrangler kv:namespace create CACHE --preview
+# Then paste the ids here.
+[[kv_namespaces]]
+binding = "CACHE"
+id = "132f13f0b38a4d4186430b30a90024cc"
+preview_id = "3dd14456c4864a359235340f492645d5"
+
+# ── Secrets (never commit actual values) ──────────────────────────────────────
+# After setup, run:
+#   npx wrangler secret put ANTHROPIC_KEY
+#   npx wrangler secret put DEEPL_KEY
+#   npx wrangler secret put RESEND_KEY

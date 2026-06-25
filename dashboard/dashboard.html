@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Language Learning Dashboard</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* =====================
+       DESIGN TOKENS
+    ====================== */
+    :root {
+      --brand-rgb: 6,182,212;
+      --brand-deep: #0891b2;
+      --glass-bg: rgba(255,255,255,0.75);
+      --glass-border: rgba(255,255,255,0.35);
+      --glass-blur: blur(16px);
+      --glass-shadow: 0 12px 30px rgba(0,0,0,0.12);
+
+      --brand: #06b6d4;
+      --brand-2: #38bdf8;
+      --brand-soft: rgba(6,182,212,0.07);
+      --brand-border: rgba(6,182,212,0.18);
+
+      --accent: var(--brand);
+      --accent-light: var(--brand-2);
+      --accent-dark: var(--brand-deep);
+
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --text-soft: #94a3b8;
+
+      --success: #16a34a;
+      --danger: #dc2626;
+      --border: rgba(226,232,240,0.85);
+    }
+
+    /* =====================
+       BASE
+    ====================== */
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      color: var(--text-main);
+      /* Multi-layer radial gradient creates a soft ambient glow field */
+      background: #F8FAFC;
+      background-attachment: fixed;
+    }
+
+    /* =====================
+       NAVIGATION — frosted glass bar
+    ====================== */
+    nav {
+      height: 64px;
+      padding: 0 28px;
+      display: flex;
+      align-items: center;
+      background: rgba(255,255,255,0.75);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(255,255,255,0.6);
+      box-shadow: 0 1px 0 var(--brand-soft), 0 4px 24px rgba(0,0,0,0.04);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    nav h1 {
+      margin: 0 36px 0 0;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      /* Gradient text for the brand logo */
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 4px;
+    }
+
+    .nav-tab {
+      cursor: pointer;
+      padding: 8px 14px;
+      border-radius: 8px;
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 14px;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s ease;
+    }
+
+    .nav-tab:hover { color: var(--text-main); background: var(--brand-soft); }
+
+    .nav-tab.active {
+      color: var(--brand);
+      background: var(--brand-soft);
+      border-bottom-color: var(--brand);
+    }
+
+    /* =====================
+       MAIN
+    ====================== */
+    main {
+      flex: 1;
+      padding: 32px 24px;
+      overflow-y: auto;
+      max-width: 1000px;
+      margin: 0 auto;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .view-section { display: none; }
+    .view-section.active { display: block; }
+
+    /* =====================
+       GLASS CARDS
+    ====================== */
+    .card {
+      background: var(--glass-bg);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      box-shadow: var(--glass-shadow);
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+
+    /* =====================
+       TABLE
+    ====================== */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-soft);
+      font-weight: 600;
+    }
+
+    tbody tr { transition: background 0.15s; }
+    tbody tr:hover { background: var(--brand-soft); }
+
+    .word-col { width: 20%; font-weight: 600; color: var(--text-main); }
+    .context-col { width: 45%; color: var(--text-muted); white-space: pre-line; }
+    .tags-col { width: 15%; }
+    .actions-col { width: 20%; text-align: right; }
+
+    /* =====================
+       TAGS — gradient pill style
+    ====================== */
+    .tag {
+      display: inline-block;
+      background: var(--brand-soft);
+      color: var(--brand);
+      border: 1px solid var(--brand-border);
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      margin: 0 4px 4px 0;
+      letter-spacing: 0.01em;
+    }
+
+    /* =====================
+       BUTTONS
+    ====================== */
+    button {
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: white;
+      box-shadow: 0 2px 12px var(--brand-border);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 18px var(--brand-border);
+    }
+
+    .btn-danger { background: var(--danger); color: white; }
+
+    .btn-ghost {
+      background: var(--brand-soft);
+      color: var(--brand);
+      border: 1px solid var(--brand-border);
+      margin-right: 5px;
+    }
+
+    .btn-ghost:hover { background: var(--brand-soft); filter: brightness(1.15); }
+
+    .btn-icon {
+      font-size: 16px;
+      padding: 6px 8px;
+      background: transparent;
+      border-radius: 8px;
+    }
+
+    .btn-icon:hover { background: var(--brand-soft); }
+
+    /* =====================
+       AI RESULT — nested glass card
+    ====================== */
+    .ai-result {
+      margin-top: 10px;
+      padding: 14px;
+      background: var(--brand-soft);
+      border: 1px solid var(--brand-border);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+      display: none;
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-line;
+    }
+
+    .ai-result.visible { display: block; }
+
+    /* =====================
+       FORMS / SETTINGS
+    ====================== */
+    .form-group { margin-bottom: 20px; }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--brand-border);
+      font-size: 14px;
+      font-family: inherit;
+      background: rgba(255,255,255,0.7);
+      backdrop-filter: blur(8px);
+      color: var(--text-main);
+      transition: all 0.15s;
+    }
+
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px var(--brand-soft);
+    }
+
+    .api-note {
+      font-size: 12px;
+      color: var(--text-soft);
+      margin-top: 6px;
+    }
+
+    /* =====================
+       FLASHCARDS — full glass card
+    ====================== */
+    .flashcard-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 400px;
+    }
+
+    .flashcard {
+      width: 100%;
+      max-width: 560px;
+      min-height: 320px;
+      height: auto;
+      background: rgba(255,255,255,0.78);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.6);
+      border-radius: 24px;
+      box-shadow: 0 20px 60px var(--brand-border), 0 4px 16px rgba(0,0,0,0.05);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      padding: 20px 28px 24px;
+      text-align: center;
+      position: relative;
+      justify-content: flex-start;
+      padding-top: 48px;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .flashcard:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 28px 72px var(--brand-border), 0 6px 20px rgba(0,0,0,0.06);
+    }
+
+    .fc-word {
+      font-size: clamp(36px, 6vw, 52px);
+      font-weight: 700;
+      margin-bottom: 10px;
+      line-height: 1.1;
+      /* Gradient text for the word */
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .fc-phonetic {
+      font-size: 14px;
+      color: var(--text-soft);
+      font-family: monospace;
+      margin-bottom: 24px;
+    }
+
+    .fc-translation { color: var(--brand); font-weight: 700; font-size: 18px; margin-bottom: 8px; }
+    .fc-def-native  { font-size: 15px; color: var(--text-main); line-height: 1.6; white-space: pre-line; margin-bottom: 8px; }
+    .fc-def-en-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 3px; }
+    .fc-def-en      { font-size: 13px; color: var(--text-muted); line-height: 1.55; white-space: pre-line; margin-bottom: 8px; }
+    .fc-example-block { border-top: 1px solid var(--border); padding-top: 8px; }
+    .fc-example     { font-size: 13px; color: var(--text-muted); font-style: italic; line-height: 1.5; margin-bottom: 3px; }
+    .fc-example-trans { font-size: 12px; color: var(--text-muted); opacity: 0.7; line-height: 1.5; }
+
+    .fc-definition {
+      font-size: 15px;
+      color: var(--text-muted);
+      display: none;
+      margin-top: 16px;
+      border-top: 1px solid var(--border);
+      padding-top: 16px;
+      white-space: pre-line;
+      width: 100%;
+      text-align: left;
+    }
+
+    .fc-hint {
+      position: absolute;
+      bottom: 20px;
+      font-size: 12px;
+      color: var(--text-soft);
+      background: var(--brand-soft);
+      border: 1px solid var(--brand-border);
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-weight: 500;
+    }
+
+    .review-controls {
+      margin-top: 28px;
+      display: flex;
+      gap: 12px;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .review-controls.visible { opacity: 1; }
+
+    .review-btn {
+      padding: 10px 28px;
+      border-radius: 999px;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+    }
+
+    .btn-hard { background: linear-gradient(135deg, #ef4444, #f87171); color: white; }
+    .btn-good { background: linear-gradient(135deg, #22c55e, #4ade80); color: white; }
+
+    /* =====================
+       DARK MODE
+    ====================== */
+    html.dark body { background: #0F172A; color: #E2E8F0; }
+    html.dark { --text-main: #E2E8F0; --text-muted: #94A3B8; --text-soft: #64748b; --border: rgba(255,255,255,0.08); }
+    html.dark .card, html.dark .ai-result {
+      background: rgba(30,41,59,0.8) !important;
+      border: 1px solid rgba(148,163,184,0.15) !important;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.35) !important;
+    }
+    html.dark nav { background: rgba(15,23,42,0.8); border-bottom-color: rgba(255,255,255,0.06); }
+    html.dark input, html.dark select { background: rgba(255,255,255,0.06); color: var(--text-main); border-color: rgba(255,255,255,0.12); }
+    html.dark table { color: var(--text-main); }
+    html.dark .flashcard { background: rgba(15,23,42,0.75); border-color: rgba(255,255,255,0.1); }
+    /* Improved text contrast for table cells in dark mode */
+    html.dark .word-col div:first-child,
+    html.dark td, html.dark th { color: #E2E8F0; }
+    html.dark .context-col div,
+    html.dark .ai-result > div { color: #94A3B8; }
+
+    /* =====================
+       THEME — hue slider
+    ====================== */
+    /* Style the range input thumb to follow the current accent color */
+    #accent-hue { width: 100%; margin-top: 8px; accent-color: var(--brand); cursor: pointer; }
+
+    /* ── Dark mode toggle ── */
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; }
+    .toggle-switch { position: relative; width: 44px; height: 24px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-track {
+      position: absolute; inset: 0; border-radius: 999px;
+      background: var(--brand-border); cursor: pointer; transition: background 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-track { background: var(--brand); }
+    .toggle-track::after {
+      content: ''; position: absolute; top: 3px; left: 3px;
+      width: 18px; height: 18px; border-radius: 50%; background: white;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-track::after { transform: translateX(20px); }
+
+    /* =====================
+       GAME — shared screens
+    ====================== */
+    .game-screen { display: none; }
+    .game-screen.active { display: block; }
+
+    /* ── Menu ── */
+    .game-menu-card { max-width: 480px; margin: 0 auto; text-align: center; }
+    .game-menu-card h2 { margin-top: 0; font-size: 22px;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .menu-actions { display: flex; gap: 12px; justify-content: center; margin-top: 20px; }
+
+    /* ── Profile Widget ── */
+    #menu-profile { margin: 16px 0; text-align: left; }
+    .profile-level { font-size: 18px; font-weight: 700; color: var(--brand); margin-bottom: 6px; }
+    .profile-xp-bar { height: 8px; background: var(--brand-soft); border-radius: 999px; overflow: hidden; margin-bottom: 4px; }
+    .profile-xp-fill { height: 100%; background: linear-gradient(90deg, var(--brand), var(--brand-2)); border-radius: 999px; transition: width 0.4s ease; }
+    .profile-xp-label { font-size: 12px; color: var(--text-soft); margin-bottom: 10px; }
+    .profile-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-muted); font-weight: 500; }
+
+    /* ── Mode Cards ── */
+    .mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+    .mode-card {
+      background: rgba(255,255,255,0.6); border: 2px solid var(--glass-border);
+      border-radius: 14px; padding: 20px 12px; text-align: center; cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .mode-card:hover { border-color: var(--brand-border); background: var(--brand-soft); }
+    .mode-card.selected { border-color: var(--brand); background: var(--brand-soft);
+      box-shadow: 0 0 0 3px var(--brand-border); }
+    .mode-icon { font-size: 28px; margin-bottom: 8px; }
+    .mode-name { font-weight: 700; font-size: 15px; color: var(--text-main); margin-bottom: 4px; }
+    .mode-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+
+    /* ── Gameplay ── */
+    .game-play-card { max-width: 600px; margin: 0 auto; }
+    .mode-status-bar { margin-bottom: 16px; }
+    #mode-status { font-size: 13px; font-weight: 600; color: var(--brand); }
+    .race-bar-wrap { height: 6px; background: var(--brand-soft); border-radius: 999px; overflow: hidden; margin-top: 6px; }
+    #race-bar { height: 100%; background: linear-gradient(90deg, var(--brand), var(--brand-2)); border-radius: 999px; transition: width 0.2s linear; }
+
+    .game-definition-box { background: var(--brand-soft); border: 1px solid var(--brand-border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+    .game-def-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-soft); margin-bottom: 8px; }
+    .game-definition-text { font-size: 16px; color: var(--text-main); line-height: 1.6; }
+
+    .hint-area { min-height: 24px; margin-bottom: 10px; }
+    .hint-item { font-size: 13px; color: var(--brand); font-weight: 500; padding: 4px 0; }
+
+    .game-input {
+      width: 100%; padding: 14px 16px; border-radius: 12px;
+      border: 2px solid var(--brand-border); font-size: 18px; font-weight: 600;
+      font-family: inherit; background: rgba(255,255,255,0.8);
+      color: var(--text-main); transition: all 0.15s; margin-bottom: 12px;
+    }
+    .game-input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+
+    .feedback-area { min-height: 28px; margin-bottom: 12px; font-size: 15px; font-weight: 600; }
+    .feedback-correct { color: #16a34a; }
+    .feedback-wrong   { color: var(--danger); }
+
+    .game-actions { display: flex; gap: 8px; align-items: center; }
+    #btn-quit-game { margin-left: auto; }
+
+    .obj { font-size: 13px; color: var(--text-muted); padding: 2px 0; }
+    .obj.done { color: #16a34a; font-weight: 600; }
+    #mission-objectives { margin-top: 8px; }
+
+    /* ── Results ── */
+    .results-stat { display: inline-block; margin: 0 16px 16px; }
+    .rs-big { display: block; font-size: 40px; font-weight: 700;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .results-level { font-size: 14px; color: var(--text-muted); margin: 8px 0 12px; }
+    .results-titles { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
+    .results-title-badge {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: #fff; font-size: 11px; font-weight: 700; border-radius: 999px;
+      padding: 3px 10px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .achievement-unlock {
+      background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.3);
+      color: #a16207; border-radius: 8px; padding: 8px 14px; margin: 6px 0;
+      font-size: 13px; font-weight: 600;
+    }
+
+    /* ── Word Review ── */
+    .review-item { display: grid; grid-template-columns: 140px auto 1fr; gap: 12px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .review-word { font-weight: 700; color: var(--brand); font-size: 15px; }
+    .review-state { font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+    .state-relearn  { background: rgba(239,68,68,0.1);   color: #dc2626; }
+    .state-learning { background: rgba(234,179,8,0.1);   color: #b45309; }
+    .state-new      { background: var(--brand-soft);     color: var(--brand-deep); }
+    .state-known    { background: rgba(34,197,94,0.1);   color: #16a34a; }
+    .review-def { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+  </style>
+</head>
+
+<body>
+
+<nav>
+  <h1>VocabAI</h1>
+  <div class="nav-tabs">
+    <div class="nav-tab active" data-target="list-view">My Vocabulary</div>
+    <div class="nav-tab" data-target="sentences-view">Sentences</div>
+    <div class="nav-tab" data-target="videos-view">Videos</div>
+    <div class="nav-tab" data-target="review-view">Review Mode</div>
+    <div class="nav-tab" data-target="game-view">Game</div>
+    <div class="nav-tab" data-target="settings-view">Settings</div>
+    <div class="nav-tab" data-target="account-view" id="account-nav-tab">Account</div>
+  </div>
+</nav>
+
+<main>
+
+  <!-- LIST VIEW -->
+  <div id="list-view" class="view-section active">
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th class="word-col">Word</th>
+            <th class="context-col">Context & Meaning</th>
+            <th class="tags-col">Tags</th>
+            <th class="actions-col">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="word-table-body"></tbody>
+      </table>
+
+      <div id="empty-state" style="text-align:center; padding:40px; color:var(--text-soft); display:none;">
+        No words saved yet. Highlight text on any page → Right Click → Save.
+      </div>
+    </div>
+  </div>
+
+  <!-- SENTENCES VIEW -->
+  <div id="sentences-view" class="view-section">
+    <div class="card">
+      <div id="sentences-list"></div>
+    </div>
+  </div>
+
+  <!-- VIDEOS VIEW -->
+  <div id="videos-view" class="view-section">
+    <div class="card">
+      <div id="videos-list"></div>
+    </div>
+  </div>
+
+  <!-- REVIEW VIEW -->
+  <div id="review-view" class="view-section">
+    <div class="flashcard-container" id="review-container">
+      <div id="no-review" style="text-align:center; color:var(--text-muted);">
+        <h2>All caught up!</h2>
+        <p>No words pending review right now.</p>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- SETTINGS VIEW -->
+  <div id="settings-view" class="view-section">
+    <div class="card" style="max-width:600px;margin:0 auto;">
+      <h2 style="margin-top:0">Extension Settings</h2>
+
+      <!-- Appearance -->
+      <div class="form-group">
+        <label>
+          Accent Color
+          <!-- Live color dot preview — updated by JS as slider moves -->
+          <span id="hue-preview" style="display:inline-block;width:14px;height:14px;border-radius:50%;vertical-align:middle;margin-left:6px;"></span>
+        </label>
+        <input type="range" id="accent-hue" min="0" max="360" value="190" />
+      </div>
+
+      <div class="form-group">
+        <div class="toggle-row">
+          <label style="margin:0">Dark Mode</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="dark-mode-toggle" />
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:20px 0;" />
+
+      <!-- Dictionary -->
+      <div class="form-group">
+        <label>Definition Source</label>
+        <select id="ai-provider">
+          <option value="cloud">☁️ Cloud AI — Claude + DeepL (subscription)</option>
+          <option value="freedict">Free Dictionary (no account needed)</option>
+        </select>
+        <div class="api-note" id="provider-note-cloud" style="margin-top:6px;">Uses Claude Haiku + DeepL on our servers. No API key required. Log in via the Account tab to activate.</div>
+        <div class="api-note" id="provider-note-free" style="margin-top:6px;display:none;">Free English dictionary + unofficial Google Translate. No account needed, but no context-aware definitions.</div>
+      </div>
+
+      <!-- Target Language — always visible -->
+      <div class="form-group">
+        <label>Target Language</label>
+        <select id="target-lang">
+          <option value="Spanish">Spanish</option>
+          <option value="French">French</option>
+          <option value="German">German</option>
+          <option value="Japanese">Japanese</option>
+          <option value="Chinese">Chinese</option>
+          <option value="Italian">Italian</option>
+          <option value="Korean">Korean</option>
+          <option value="Russian">Russian</option>
+          <option value="Portuguese">Portuguese</option>
+          <option value="Vietnamese">Vietnamese</option>
+          <option value="Thai">Thai</option>
+          <option value="Arabic">Arabic</option>
+          <option value="Hindi">Hindi</option>
+          <option value="Dutch">Dutch</option>
+          <option value="Polish">Polish</option>
+          <option value="Swedish">Swedish</option>
+          <option value="Danish">Danish</option>
+          <option value="Norwegian">Norwegian</option>
+          <option value="Indonesian">Indonesian</option>
+          <option value="Turkish">Turkish</option>
+        </select>
+      </div>
+
+      <button id="save-settings" class="btn-primary" style="margin-top:20px;">Save Settings</button>
+      <span id="save-msg" style="margin-left:10px;color:var(--success);opacity:0;">Saved!</span>
+    </div>
+  </div>
+
+  <!-- GAME VIEW -->
+  <div id="game-view" class="view-section">
+
+    <!-- Screen: Main Menu -->
+    <div id="screen-menu" class="game-screen active">
+      <div class="card game-menu-card">
+        <h2>Vocabulary Game</h2>
+        <div id="menu-profile"></div>
+        <div class="menu-actions">
+          <button class="btn-primary" id="btn-play">▶ Play</button>
+          <button class="btn-ghost" id="btn-review">📚 Review Words</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen: Mode Selection -->
+    <div id="screen-mode" class="game-screen">
+      <div class="card" style="max-width:600px;margin:0 auto;">
+        <h2 style="margin-top:0">Choose a Mode</h2>
+        <div class="mode-grid">
+          <div class="mode-card selected" data-mode="race">
+            <div class="mode-icon">🏁</div>
+            <div class="mode-name">Race</div>
+            <div class="mode-desc">Keep the bar alive. Type fast!</div>
+          </div>
+          <div class="mode-card" data-mode="survival">
+            <div class="mode-icon">⏱️</div>
+            <div class="mode-name">Survival</div>
+            <div class="mode-desc">60s timer. Correct +5s, Wrong -10s</div>
+          </div>
+          <div class="mode-card" data-mode="mission">
+            <div class="mode-icon">🎯</div>
+            <div class="mode-name">Mission</div>
+            <div class="mode-desc">Complete 3 objectives to win</div>
+          </div>
+        </div>
+        <button class="btn-primary" id="btn-start-game" style="margin-top:24px;width:100%;padding:14px;">Start Game</button>
+      </div>
+    </div>
+
+    <!-- Screen: Gameplay -->
+    <div id="screen-play" class="game-screen">
+      <div class="card game-play-card">
+        <div class="mode-status-bar">
+          <span id="mode-status"></span>
+          <div class="race-bar-wrap"><div id="race-bar" style="width:50%"></div></div>
+          <div id="mission-objectives"></div>
+        </div>
+        <div class="game-definition-box">
+          <div class="game-def-label">Type the word for this definition:</div>
+          <div id="game-definition" class="game-definition-text"></div>
+        </div>
+        <div id="hint-area" class="hint-area"></div>
+        <input type="text" id="answer-input" class="game-input" placeholder="Type your answer and press Enter…" autocomplete="off" spellcheck="false" />
+        <div id="feedback-area" class="feedback-area"></div>
+        <div class="game-actions">
+          <button class="btn-ghost" id="btn-hint">💡 Hint</button>
+          <button class="btn-ghost" id="btn-skip">⏭ Skip</button>
+          <button class="btn-icon" id="btn-quit-game" title="Quit" style="color:var(--danger)">✕ Quit</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen: Results -->
+    <div id="screen-results" class="game-screen">
+      <div class="card" style="max-width:500px;margin:0 auto;text-align:center;">
+        <h2 style="margin-top:0">Session Complete! 🎉</h2>
+        <div id="results-content"></div>
+        <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;">
+          <button class="btn-primary" id="btn-play-again">Play Again</button>
+          <button class="btn-ghost" id="btn-back-menu">Menu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen: Word Review -->
+    <div id="screen-review" class="game-screen">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <h2 style="margin:0">Words to Review</h2>
+          <button class="btn-ghost" id="btn-back-menu-review">← Back</button>
+        </div>
+        <div id="review-list"></div>
+      </div>
+    </div>
+
+  </div><!-- /game-view -->
+
+  <!-- ACCOUNT VIEW -->
+  <div id="account-view" class="view-section">
+    <div class="card" style="max-width:480px;margin:0 auto;">
+
+      <!-- State 1: Logged out -->
+      <div id="acct-logged-out">
+        <h2 style="margin-top:0">Sign in</h2>
+        <p style="color:var(--text-muted);font-size:14px;margin-bottom:24px;">Enter your email to receive a 6-digit login code. No password needed.</p>
+        <div class="form-group">
+          <label>Email address</label>
+          <input type="email" id="acct-email" placeholder="you@example.com" autocomplete="email" />
+        </div>
+        <button class="btn-primary" id="acct-send-code" style="width:100%;padding:12px;">Send Code</button>
+        <div id="acct-send-error" style="color:var(--danger);font-size:13px;margin-top:10px;display:none;"></div>
+      </div>
+
+      <!-- State 2: Code sent -->
+      <div id="acct-code-sent" style="display:none;">
+        <h2 style="margin-top:0">Check your email</h2>
+        <p style="color:var(--text-muted);font-size:14px;margin-bottom:24px;">Enter the 6-digit code sent to <strong id="acct-email-display"></strong></p>
+        <div class="form-group">
+          <label>Login code</label>
+          <input type="text" id="acct-code" placeholder="123456" maxlength="6" inputmode="numeric" autocomplete="one-time-code" style="letter-spacing:0.25em;font-size:22px;font-weight:700;text-align:center;" />
+        </div>
+        <button class="btn-primary" id="acct-verify-code" style="width:100%;padding:12px;">Verify &amp; Sign In</button>
+        <div id="acct-verify-error" style="color:var(--danger);font-size:13px;margin-top:10px;display:none;"></div>
+        <p style="text-align:center;margin-top:16px;font-size:13px;color:var(--text-soft);">
+          Didn't receive it? <button id="acct-resend" style="background:none;border:none;color:var(--brand);cursor:pointer;font-size:13px;padding:0;font-family:inherit;">Resend code</button>
+        </p>
+      </div>
+
+      <!-- State 3: Logged in -->
+      <div id="acct-logged-in" style="display:none;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+          <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--brand),var(--brand-2));display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:18px;" id="acct-avatar">?</div>
+          <div>
+            <div style="font-weight:700;font-size:15px;" id="acct-email-logged"></div>
+            <div id="acct-status-badge" style="font-size:12px;margin-top:2px;"></div>
+          </div>
+        </div>
+
+        <div style="background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:10px;padding:14px;margin-bottom:20px;">
+          <div style="font-size:13px;font-weight:600;color:var(--brand);margin-bottom:4px;">☁️ Cloud AI Active</div>
+          <div style="font-size:12px;color:var(--text-muted);">Your vocabulary syncs across devices. Definitions powered by Claude + DeepL.</div>
+        </div>
+
+        <div style="background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:10px;padding:14px;margin-bottom:20px;">
+          <div style="font-size:13px;font-weight:600;margin-bottom:4px;">Sync status</div>
+          <div id="acct-sync-status" style="font-size:12px;color:var(--text-muted);">Syncing…</div>
+          <button id="acct-sync-now" class="btn-ghost" style="margin-top:10px;font-size:12px;padding:6px 12px;">↻ Sync now</button>
+        </div>
+
+        <button id="acct-logout" class="btn-danger" style="width:100%;padding:12px;">Sign out</button>
+      </div>
+
+    </div>
+  </div><!-- /account-view -->
+
+</main>
+
+<script src="dashboard.js" type="module"></script>
+</body>
+</html>

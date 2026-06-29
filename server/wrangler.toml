@@ -20,6 +20,13 @@ binding = "CACHE"
 id = "132f13f0b38a4d4186430b30a90024cc"
 preview_id = "3dd14456c4864a359235340f492645d5"
 
+# ── Smart Placement ───────────────────────────────────────────────────────────
+# Runs the Worker close to the backend (Anthropic US), not the user.
+# Fixes "Claude API 403" for users in regions where Cloudflare's local DCs
+# are blocked by Anthropic (e.g. Vietnam, some SEA regions).
+[placement]
+mode = "smart"
+
 # ── Secrets (never commit actual values) ──────────────────────────────────────
 # After setup, run:
 #   npx wrangler secret put ANTHROPIC_KEY

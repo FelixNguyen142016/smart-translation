@@ -90,25 +90,22 @@ export async function handleAnalyze(req, env, userId) {
 
 // ── AI call helpers ────────────────────────────────────────────────────────
 
+// AI Gateway routes through Cloudflare US infrastructure, bypassing regional IP blocks.
+// Replace ACCOUNT_ID with your Cloudflare Account ID (dash.cloudflare.com → top right).
+const ANTHROPIC_GATEWAY_URL = 'https://gateway.ai.cloudflare.com/v1/eeebef75914ebf0dddf7c498417a4e41/smart-translation/anthropic/v1/messages';
+
 async function _callClaude(text, context, targetLanguage, apiKey) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch(ANTHROPIC_GATEWAY_URL, {
     method: 'POST',
     headers: {
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'prompt-caching-2024-07-31',
       'content-type': 'application/json',
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
-      system: [
-        {
-          type: 'text',
-          text: systemPrompt(targetLanguage),
-          cache_control: { type: 'ephemeral' }, // Cache per targetLanguage
-        },
-      ],
+      system: systemPrompt(targetLanguage),
       messages: [{ role: 'user', content: userMessage(text, context) }],
     }),
   });

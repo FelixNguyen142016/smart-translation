@@ -38,6 +38,11 @@ function createWindow() {
   Menu.setApplicationMenu(null);
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   mainWindow.on('closed', () => { mainWindow = null; });
+
+  // Open DevTools with F12 (remove before final release)
+  mainWindow.webContents.on('before-input-event', (_, input) => {
+    if (input.key === 'F12') mainWindow.webContents.openDevTools();
+  });
 }
 
 // ── Translate popup ────────────────────────────────────────────────────────

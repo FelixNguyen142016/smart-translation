@@ -34,7 +34,7 @@ window.electronAPI.onAnalyzeWord(async (word) => {
   resetAutoClose();
 
   try {
-    const token = await window.electronAPI.getToken();
+    const token = (await window.electronAPI.getToken()) || localStorage.getItem('cloud_auth_token');
     const settings = JSON.parse(localStorage.getItem('extension_settings') || '{}');
     const targetLanguage = settings.targetLanguage || 'Spanish';
 

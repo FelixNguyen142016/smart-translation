@@ -103,7 +103,7 @@ export function calcXP(word, result, mode) {
 
 const ACHIEVEMENT_DEFS = [
   { id: 'first_correct',  title: 'First Word!',    desc: 'Answer correctly for the first time', condition: (p) => p.totalCorrect >= 1 },
-  { id: 'streak_5',       title: 'On a Roll',      desc: '5-word correct streak',               condition: (p, s) => s.streak >= 5 },
+  { id: 'streak_5',       title: 'On a Roll',      desc: '5-word correct streak',               condition: (p, s) => s.maxStreak >= 5 },
   { id: 'no_hints',       title: 'Unaided',        desc: 'Complete a session without hints',     condition: (_, s) => s.hintCount === 0 && s.totalAnswered >= 5 },
   { id: 'master_10',      title: 'Word Master',    desc: 'Master 10 words (Known state)',        condition: (p) => p.wordsMastered >= 10 },
   { id: 'accuracy_90',    title: 'Sharpshooter',   desc: '90%+ accuracy in a session',          condition: (_, s) => s.totalAnswered >= 10 && (s.correct / s.totalAnswered) >= 0.9 },

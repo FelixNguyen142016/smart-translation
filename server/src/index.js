@@ -31,7 +31,7 @@ app.use('*', cors({
 }));
 
 // ── Health check ──────────────────────────────────────────────────────────
-app.get('/', (c) => c.json({ service: 'Smart Translation API', version: '1.0.0' }));
+app.get('/', (c) => c.json({ service: 'Semantica API', version: '1.0.0' }));
 
 // ── Public auth routes ────────────────────────────────────────────────────
 app.post('/v1/auth/request', (c) => handleAuthRequest(c.req.raw, c.env));

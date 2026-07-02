@@ -44,18 +44,65 @@ if (window.electronAPI?.platform === 'darwin') {
 }
 
 // ─── App visibility helpers ───────────────────────────────────────────────────
+// Tracks the pending animationend handler so we can cancel it if needed
+let _lpExitHandler = null;
+
 function showMainApp() {
-  document.getElementById('login-page').style.display = 'none';
-  document.getElementById('main-app').style.display = 'flex';
-}
-function showLoginPage() {
-  document.getElementById('main-app').style.display = 'none';
-  document.getElementById('login-page').style.display = 'flex';
+  const lp  = document.getElementById('login-page');
+  const app = document.getElementById('main-app');
+
+  // Cancel any stale animationend listener from a previous showMainApp call
+  if (_lpExitHandler) {
+    lp.removeEventListener('animationend', _lpExitHandler);
+    _lpExitHandler = null;
+  }
+
+  // Slide in the dashboard
+  app.style.display = 'flex';
+  app.classList.remove('app-enter');
+  void app.offsetWidth;
+  app.classList.add('app-enter');
+
+  // Fade + scale out the login page on top
+  lp.classList.remove('lp-enter');
+  lp.classList.add('lp-exit');
+  _lpExitHandler = () => {
+    lp.style.display = 'none';
+    lp.classList.remove('lp-exit');
+    _lpExitHandler = null;
+  };
+  lp.addEventListener('animationend', _lpExitHandler, { once: true });
 }
 
-// ─── Speak using Web Speech API (no chrome.tts) ───────────────────────────────
-function speakText(word) {
-  if (!word || !window.speechSynthesis) return;
+function showLoginPage() {
+  const lp  = document.getElementById('login-page');
+  const app = document.getElementById('main-app');
+
+  // Cancel any stale lp-exit animationend listener before touching the element
+  if (_lpExitHandler) {
+    lp.removeEventListener('animationend', _lpExitHandler);
+    _lpExitHandler = null;
+  }
+
+  // Strip all animation classes and inline opacity so login page shows cleanly
+  lp.classList.remove('lp-exit', 'lp-enter');
+  lp.style.display = 'flex';
+  app.style.display = 'none';
+}
+
+// ─── Speak word — Google TTS audio if cached, Web Speech API as fallback ────────
+function speakText(word, audioBase64) {
+  if (!word) return;
+
+  if (audioBase64) {
+    try {
+      const audio = new Audio(`data:audio/mp3;base64,${audioBase64}`);
+      audio.play();
+      return;
+    } catch (_) { /* fall through to Web Speech */ }
+  }
+
+  if (!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(word);
   window.speechSynthesis.speak(utterance);
@@ -150,15 +197,60 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ─── Navigation ─────────────────────────────────────────────────────────────
   const tabs = document.querySelectorAll('.nav-tab');
   const sections = document.querySelectorAll('.view-section');
+  const tabIndicator = document.getElementById('tab-indicator');
+
+  function moveIndicator(tab) {
+    if (!tabIndicator) return;
+    const navTabs = tab.closest('.nav-tabs');
+    const navRect = navTabs.getBoundingClientRect();
+    const tabRect = tab.getBoundingClientRect();
+    const padding = 14; // matches .nav-tab padding-left/right
+    tabIndicator.style.left  = (tabRect.left - navRect.left + padding) + 'px';
+    tabIndicator.style.width = (tabRect.width - padding * 2) + 'px';
+  }
+
+  // Position indicator on the initially active tab without animation
+  const initialTab = document.querySelector('.nav-tab.active');
+  if (initialTab && tabIndicator) {
+    tabIndicator.style.transition = 'none';
+    moveIndicator(initialTab);
+    requestAnimationFrame(() => { tabIndicator.style.transition = ''; });
+  }
+
+  // These tabs own internal sub-screens that conflict with CSS animations
+  const NO_DISSOLVE = new Set(['review-view', 'practice-view', 'game-view']);
 
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
+      if (tab.classList.contains('active')) return; // already active, skip
+
+      const outgoing = document.querySelector('.view-section.active');
+      const useAnimation = !NO_DISSOLVE.has(tab.dataset.target) &&
+                           outgoing && !NO_DISSOLVE.has(outgoing.id);
+
+      if (useAnimation) {
+        // Fade out the outgoing section
+        outgoing.classList.add('tab-exit');
+        outgoing.classList.remove('active');
+        outgoing.addEventListener('animationend', () => {
+          outgoing.classList.remove('tab-exit');
+          outgoing.style.display = '';
+        }, { once: true });
+      } else if (outgoing) {
+        // Instant swap — no animation
+        outgoing.classList.remove('active');
+      }
+
+      // Update active tab + slide indicator
       tabs.forEach(t => t.classList.remove('active'));
-      sections.forEach(s => s.classList.remove('active'));
-
       tab.classList.add('active');
-      document.getElementById(tab.dataset.target).classList.add('active');
+      moveIndicator(tab);
 
+      // Fade in (or instantly show) the incoming section
+      const incoming = document.getElementById(tab.dataset.target);
+      incoming.classList.add('active');
+
+      // Trigger view-specific logic
       if (tab.dataset.target === 'list-view')      loadVocab().then(renderWords);
       if (tab.dataset.target === 'review-view')    startReviewSession();
       if (tab.dataset.target === 'game-view')      initGame();
@@ -256,7 +348,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadIeltsWordlist();
 
   // ─── Load vocab from cloud on startup (only if logged in) ────────────────────
-  if (isLoggedIn()) await loadVocab();
+  // pushWordCache keeps the main-process word list in sync for the search bar
+  function pushWordCache() {
+    if (window.electronAPI?.sendWordCache) window.electronAPI.sendWordCache(getWords());
+  }
+
+  if (isLoggedIn()) {
+    await loadVocab();
+    pushWordCache();
+  }
 
   // ─── Vocabulary List ─────────────────────────────────────────────────────────
   const tableBody    = document.getElementById('word-table-body');
@@ -509,7 +609,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       playBtn.innerHTML = `<span style="width:22px;height:22px;border-radius:50%;background:rgba(6,182,212,0.10);display:flex;align-items:center;justify-content:center;transition:background 0.15s;"><i data-lucide="volume-2" style="width:11px;height:11px;color:var(--brand);stroke-width:2.5;"></i></span><span>Play</span>`;
       playBtn.onmouseenter = () => { playBtn.style.color = 'var(--brand)'; playBtn.querySelector('span').style.background = 'rgba(6,182,212,0.20)'; };
       playBtn.onmouseleave = () => { playBtn.style.color = 'var(--text-muted)'; playBtn.querySelector('span').style.background = 'rgba(6,182,212,0.10)'; };
-      playBtn.onclick = (e) => { e.stopPropagation(); speakText(word.text); };
+      playBtn.onclick = (e) => { e.stopPropagation(); speakText(word.text, word.aiAnalysis?.audioBase64); };
 
       tdWord.appendChild(wordGrad);
       tdWord.appendChild(phonetic);
@@ -902,15 +1002,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function renderSentences() {
     const el = document.getElementById('sentences-list');
     const words = await getWords();
-    const withContext = words.filter(w => w.context);
+
+    // Use original context if available, fall back to AI-generated example sentence
+    const getSentence = w => w.context || w.aiAnalysis?.exampleSentence || '';
+    const withContext = words.filter(w => getSentence(w));
 
     if (!withContext.length) {
-      el.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:32px">No sentences saved yet. Save words from video subtitles or page text to see them here.</p>';
+      el.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:32px">No sentences yet. Save words to see their example sentences here.</p>';
       return;
     }
 
     el.innerHTML = '';
     withContext.forEach(word => {
+      const sentenceText = getSentence(word);
+      const isAiExample = !word.context && !!word.aiAnalysis?.exampleSentence;
+
       const row = document.createElement('div');
       row.style.cssText = 'border-bottom:1px solid var(--border);padding:16px 0;display:flex;gap:16px;align-items:flex-start;';
 
@@ -921,7 +1027,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const detail = document.createElement('div');
       const sentence = document.createElement('div');
       sentence.style.cssText = 'font-style:italic;color:var(--text-main);margin-bottom:6px;line-height:1.5;';
-      sentence.textContent = `"${word.context}"`;
+      sentence.textContent = `"${sentenceText}"`;
 
       const meta = document.createElement('div');
       meta.style.cssText = 'font-size:11px;color:var(--text-muted);display:flex;gap:12px;align-items:center;flex-wrap:wrap;';
@@ -942,6 +1048,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         link.onmouseenter = () => { link.style.textDecoration = 'underline'; };
         link.onmouseleave = () => { link.style.textDecoration = 'none'; };
         meta.appendChild(link);
+      }
+
+      if (isAiExample) {
+        const aiLabel = document.createElement('span');
+        aiLabel.textContent = '✦ AI example';
+        aiLabel.style.cssText = 'font-size:10px;font-weight:600;color:var(--brand);background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:999px;padding:2px 8px;display:inline-block;margin-bottom:6px;';
+        detail.appendChild(aiLabel);
       }
 
       detail.appendChild(sentence);
@@ -1158,7 +1271,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       saveBtn.textContent = 'Saving…';
       try {
         await saveWord({ text: _pendingWord, context: '', aiAnalysis: _pendingAnalysis });
-        await loadVocab();
+        await loadVocab(); pushWordCache();
         closeModal();
 
         // Clear search so the new word shows at the very top of the list
@@ -1386,7 +1499,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     _focusSyncTimer = setTimeout(async () => {
       const token = getToken();
       if (!token) return;
-      await loadVocab();
+      await loadVocab(); pushWordCache();
       // Re-render whichever tab is currently visible
       const activeView = document.querySelector('.view-section.active');
       if (activeView?.id === 'list-view') await renderWords();
@@ -1418,7 +1531,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     document.getElementById('acct-sync-now').addEventListener('click', async () => {
       updateSyncStatus('Syncing…');
-      await loadVocab();
+      await loadVocab(); pushWordCache();
       await renderWords();
       updateSyncStatus('Last synced: just now');
     });
@@ -1486,6 +1599,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function handleLogout() {
     clearAuthSession();
+    if (window.electronAPI?.setToken) window.electronAPI.setToken(null);
     const settings = getSettings();
     await saveSettings({ ...settings, provider: 'freedict' });
     aiProviderSelect.value = 'freedict';
@@ -1517,7 +1631,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     updateSyncStatus('Syncing…');
     try {
-      await loadVocab();
+      await loadVocab(); pushWordCache();
       await renderWords();
       updateSyncStatus('Last synced: just now');
     } catch {
@@ -1732,7 +1846,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       inner.classList.add('flipped');
       controls.style.opacity = '1';
       controls.style.pointerEvents = 'auto';
-      speakText(word.text);
+      speakText(word.text, word.aiAnalysis?.audioBase64);
     });
 
     const btnHard = controls.querySelector('.btn-hard');

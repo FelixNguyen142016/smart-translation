@@ -64,10 +64,11 @@ export async function handleAnalyze(req, env, userId) {
     return new Response(JSON.stringify({ ...cached, cached: true }), { headers: rlHeaders });
   }
 
-  // Parallel: Claude Haiku (definition) + DeepL (translation)
-  const [claudeResult, deeplResult] = await Promise.allSettled([
+  // Parallel: Claude Haiku (definition) + DeepL (translation) + Google TTS (audio)
+  const [claudeResult, deeplResult, ttsResult] = await Promise.allSettled([
     _callClaude(text, context, targetLanguage, env.ANTHROPIC_KEY),
     _callDeepL(text, targetLanguage, env.DEEPL_KEY),
+    _callGoogleTTS(text, env.GOOGLE_TTS_KEY),
   ]);
 
   if (claudeResult.status === 'rejected') {
@@ -80,7 +81,13 @@ export async function handleAnalyze(req, env, userId) {
   if (deeplResult.status === 'fulfilled' && deeplResult.value) {
     analysis.translation = deeplResult.value;
   }
-  analysis.source = 'Claude Haiku 4.5 + DeepL';
+
+  // Attach audio if TTS succeeded (silent fallback if key missing or API error)
+  if (ttsResult.status === 'fulfilled' && ttsResult.value) {
+    analysis.audioBase64 = ttsResult.value;
+  }
+
+  analysis.source = 'Claude Haiku 4.5 + DeepL + Google TTS';
 
   // Cache result
   await env.CACHE.put(cacheKey, JSON.stringify(analysis), { expirationTtl: CACHE_TTL_SECONDS });
@@ -155,6 +162,27 @@ async function _callDeepL(text, targetLanguage, apiKey) {
   } catch {
     return null;
   }
+}
+
+async function _callGoogleTTS(text, apiKey) {
+  if (!apiKey) return null;
+
+  const res = await fetch(
+    `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { text: text.trim() },
+        voice: { languageCode: 'en-US', name: 'en-US-Neural2-D' },
+        audioConfig: { audioEncoding: 'MP3', speakingRate: 0.85 },
+      }),
+    }
+  );
+
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.audioContent || null; // base64-encoded MP3
 }
 
 function errResponse(message, status) {

@@ -3,18 +3,42 @@
 const { app, BrowserWindow, Menu, globalShortcut, clipboard, ipcMain, screen } = require('electron');
 const path = require('path');
 
-let mainWindow = null;
-let popupWindow = null;
+let mainWindow   = null;
+let popupWindow  = null;
+let searchWindow = null;
 
 // ── Auth token shared between windows via IPC ──────────────────────────────
 let _authToken = null;
-ipcMain.handle('set-token', (_, token) => { _authToken = token; });
-ipcMain.handle('get-token', () => _authToken);
+// Word cache pushed from main window renderer — used by search bar for instant lookup
+let _wordCache = [];
+
+ipcMain.handle('set-token',   (_, token) => { _authToken = token; });
+ipcMain.handle('get-token',   ()         => _authToken);
+ipcMain.on('update-word-cache', (_, words) => { _wordCache = words || []; });
+
 ipcMain.handle('close-popup', () => {
   if (popupWindow && !popupWindow.isDestroyed()) {
     popupWindow.close();
     popupWindow = null;
   }
+});
+
+ipcMain.handle('close-search', () => {
+  if (searchWindow && !searchWindow.isDestroyed()) {
+    searchWindow.close();
+    searchWindow = null;
+  }
+});
+
+// search-word: called from search bar on Enter
+// Checks word cache → routes to popup with savedData (found) or null (new)
+ipcMain.handle('search-word', (_, word) => {
+  const match = _wordCache.find(w => w.text?.toLowerCase() === word.toLowerCase()) || null;
+  if (searchWindow && !searchWindow.isDestroyed()) {
+    searchWindow.close();
+    searchWindow = null;
+  }
+  showTranslatePopup(word, match);
 });
 
 
@@ -38,20 +62,15 @@ function createWindow() {
   Menu.setApplicationMenu(null);
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   mainWindow.on('closed', () => { mainWindow = null; });
-
-  // Open DevTools with F12 (remove before final release)
-  mainWindow.webContents.on('before-input-event', (_, input) => {
-    if (input.key === 'F12') mainWindow.webContents.openDevTools();
-  });
 }
 
 // ── Translate popup ────────────────────────────────────────────────────────
-function showTranslatePopup(word) {
+// savedData: full word object from vocab cache, or null for a new word
+function showTranslatePopup(word, savedData = null) {
   const { x, y } = screen.getCursorScreenPoint();
-  const display = screen.getDisplayNearestPoint({ x, y });
+  const display   = screen.getDisplayNearestPoint({ x, y });
   const { bounds } = display;
 
-  // Position near cursor, keep inside screen bounds
   let px = x + 14;
   let py = y + 14;
   if (px + 360 > bounds.x + bounds.width)  px = x - 374;
@@ -60,7 +79,7 @@ function showTranslatePopup(word) {
   // Reuse existing popup if open
   if (popupWindow && !popupWindow.isDestroyed()) {
     popupWindow.setPosition(px, py);
-    popupWindow.webContents.send('analyze-word', word);
+    popupWindow.webContents.send('analyze-word', word, _authToken, savedData);
     popupWindow.show();
     popupWindow.focus();
     return;
@@ -89,10 +108,9 @@ function showTranslatePopup(word) {
 
   popupWindow.once('ready-to-show', () => {
     popupWindow.show();
-    popupWindow.webContents.send('analyze-word', word);
+    popupWindow.webContents.send('analyze-word', word, _authToken, savedData);
   });
 
-  // Close when user clicks elsewhere
   popupWindow.on('blur', () => {
     if (popupWindow && !popupWindow.isDestroyed()) {
       popupWindow.close();
@@ -103,30 +121,80 @@ function showTranslatePopup(word) {
   popupWindow.on('closed', () => { popupWindow = null; });
 }
 
-// ── Global hotkey: Cmd+Shift+T (Mac) / Ctrl+Shift+T (Win) ────────────────
-// Flow: select word → Cmd+C → Cmd+Shift+T → popup appears
-function registerHotkey() {
-  const ok = globalShortcut.register('CommandOrControl+Shift+T', () => {
+// ── Search bar window ──────────────────────────────────────────────────────
+function showSearchBar() {
+  // If already open, just focus it
+  if (searchWindow && !searchWindow.isDestroyed()) {
+    searchWindow.focus();
+    return;
+  }
+
+  const { bounds } = screen.getPrimaryDisplay();
+  const winW = 520;
+  const winH = 62;
+  const px   = Math.round(bounds.x + (bounds.width  - winW) / 2);
+  const py   = Math.round(bounds.y + bounds.height * 0.28); // ~28% from top
+
+  searchWindow = new BrowserWindow({
+    width:  winW,
+    height: winH,
+    x: px,
+    y: py,
+    frame: false,
+    alwaysOnTop: true,
+    resizable: false,
+    transparent: true,
+    hasShadow: true,
+    skipTaskbar: true,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, 'preload-search.js'),
+    },
+    show: false,
+  });
+
+  searchWindow.loadFile(path.join(__dirname, 'renderer', 'search.html'));
+  searchWindow.once('ready-to-show', () => searchWindow.show());
+
+  // Dismiss when user clicks elsewhere
+  searchWindow.on('blur', () => {
+    if (searchWindow && !searchWindow.isDestroyed()) {
+      searchWindow.close();
+      searchWindow = null;
+    }
+  });
+
+  searchWindow.on('closed', () => { searchWindow = null; });
+}
+
+// ── Global hotkeys ─────────────────────────────────────────────────────────
+function registerHotkeys() {
+  // Existing: select word → copy → Cmd/Ctrl+Shift+T → translate popup
+  const translateOk = globalShortcut.register('CommandOrControl+Shift+T', () => {
     const text = clipboard.readText().trim();
-    // Only process single words or short phrases — not paragraphs
     if (!text || text.length > 80 || text.split(/\s+/).length > 6) return;
     showTranslatePopup(text);
   });
-  if (!ok) console.error('[VocabAI] Hotkey registration failed — another app may be using Ctrl/Cmd+Shift+T');
+  if (!translateOk) console.error('[VocabAI] Translate hotkey failed (Ctrl/Cmd+Shift+T)');
+
+  // New: Cmd/Ctrl+Shift+F → open quick search bar
+  const searchOk = globalShortcut.register('CommandOrControl+Shift+F', () => {
+    showSearchBar();
+  });
+  if (!searchOk) console.error('[VocabAI] Search hotkey failed (Ctrl/Cmd+Shift+F)');
 }
 
 // ── App lifecycle ──────────────────────────────────────────────────────────
 app.on('ready', () => {
   createWindow();
-  registerHotkey();
+  registerHotkeys();
 });
 
-// macOS: re-open window on dock click
 app.on('activate', () => {
   if (mainWindow === null) createWindow();
 });
 
-// Keep app running in background on macOS so hotkey stays active even with window closed
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });

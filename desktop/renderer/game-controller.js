@@ -10,10 +10,15 @@ import { renderMenu, renderResults, renderMissionObjectives, renderReview } from
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let words = [], currentWord = null, modeInstance = null, selectedMode = 'race';
-let sessionStats = { correct: 0, totalAnswered: 0, hintCount: 0, wordsMastered: 0, streak: 0 };
+// maxStreak tracks peak streak this session (Bug 1 fix)
+let sessionStats = { correct: 0, totalAnswered: 0, hintCount: 0, wordsMastered: 0, streak: 0, maxStreak: 0 };
 let hintsUsedThisWord = 0, maxHints = 3;
 let isSessionActive = false;
 let gameInitialized = false;
+// Race mode: finite word queue for win condition (Bug 4)
+let raceQueue = [], raceWordLimit = 10;
+// Race mode: per-round log for results review
+let raceLog = []; // [{ word, correct, skipped }]
 
 // ─── Screen Router ────────────────────────────────────────────────────────────
 function showScreen(id) {
@@ -23,9 +28,9 @@ function showScreen(id) {
 }
 
 // ─── Public Init ─────────────────────────────────────────────────────────────
-export async function initGame() {
-  words = await getWords();
-  const profile = await getProfile();
+export function initGame() {
+  words = getWords();                      // Bug 6: sync — no await needed
+  const profile = getProfile();            // Bug 6: sync — no await needed
   maxHints = maxHintsForLevel(profile.level);
   renderMenu(profile);
 
@@ -41,14 +46,23 @@ export async function initGame() {
       document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
       selectedMode = card.dataset.mode;
+      // Show/hide race word-count selector
+      const racePicker = document.getElementById('race-word-count-wrap');
+      if (racePicker) racePicker.style.display = selectedMode === 'race' ? '' : 'none';
     });
   });
+
+  // Race word-count selector (Bug 4)
+  document.getElementById('race-word-count')?.addEventListener('change', e => {
+    raceWordLimit = e.target.value === 'all' ? Infinity : parseInt(e.target.value, 10);
+  });
+
   document.getElementById('btn-start-game')?.addEventListener('click', startSession);
   document.getElementById('btn-hint')?.addEventListener('click', useHint);
   document.getElementById('btn-skip')?.addEventListener('click', skipWord);
   document.getElementById('btn-play-again')?.addEventListener('click', () => { resetSession(); showScreen('screen-mode'); });
-  document.getElementById('btn-back-menu')?.addEventListener('click', async () => { const p = await getProfile(); renderMenu(p); showScreen('screen-menu'); });
-  document.getElementById('btn-back-menu-review')?.addEventListener('click', async () => { const p = await getProfile(); renderMenu(p); showScreen('screen-menu'); });
+  document.getElementById('btn-back-menu')?.addEventListener('click', () => { const p = getProfile(); renderMenu(p); showScreen('screen-menu'); });
+  document.getElementById('btn-back-menu-review')?.addEventListener('click', () => { const p = getProfile(); renderMenu(p); showScreen('screen-menu'); });
   document.getElementById('btn-quit-game')?.addEventListener('click', () => { modeInstance?.stop?.(); endSession(); });
   document.getElementById('answer-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') submitAnswer(); });
 }
@@ -57,17 +71,19 @@ export async function initGame() {
 function resetSession() {
   isSessionActive = false;
   currentWord = null;
-  sessionStats = { correct: 0, totalAnswered: 0, hintCount: 0, wordsMastered: 0, streak: 0 };
+  // Bug 1: reset maxStreak alongside streak
+  sessionStats = { correct: 0, totalAnswered: 0, hintCount: 0, wordsMastered: 0, streak: 0, maxStreak: 0 };
+  raceQueue = [];
+  raceLog = [];
   if (modeInstance) modeInstance.stop?.();
   modeInstance = null;
-  // Clear mission objectives so they don't bleed into other game modes
   const missionEl = document.getElementById('mission-objectives');
   if (missionEl) missionEl.innerHTML = '';
 }
 
 async function startSession() {
   resetSession();
-  words = await getWords();
+  words = getWords();                      // Bug 6: sync
   if (!words.length) { alert('Save some words first!'); return; }
 
   const onTick = (val) => {
@@ -80,9 +96,16 @@ async function startSession() {
   };
   const onGameOver = () => endSession();
 
-  if (selectedMode === 'race')          modeInstance = new RaceMode(onTick, onGameOver);
-  else if (selectedMode === 'survival') modeInstance = new SurvivalMode(onTick, onGameOver);
-  else if (selectedMode === 'mission')  modeInstance = new MissionMode();
+  if (selectedMode === 'race') {
+    // Bug 4: build a finite shuffled queue
+    const shuffled = [...words].sort(() => Math.random() - 0.5);
+    raceQueue = raceWordLimit === Infinity ? shuffled : shuffled.slice(0, raceWordLimit);
+    modeInstance = new RaceMode(onTick, onGameOver);
+  } else if (selectedMode === 'survival') {
+    modeInstance = new SurvivalMode(onTick, onGameOver);
+  } else if (selectedMode === 'mission') {
+    modeInstance = new MissionMode();
+  }
 
   isSessionActive = true;
   modeInstance.start?.();
@@ -91,10 +114,18 @@ async function startSession() {
 }
 
 // ─── Gameplay Loop ────────────────────────────────────────────────────────────
-async function nextRound() {
+function nextRound() {
   if (!isSessionActive) return;
-  currentWord = selectNextWord(words);
-  if (!currentWord) { endSession(); return; }
+
+  if (selectedMode === 'race') {
+    // Bug 4: pop from finite queue; empty queue = win
+    if (!raceQueue.length) { endSession(); return; }
+    currentWord = raceQueue.pop();
+  } else {
+    currentWord = selectNextWord(words);
+    if (!currentWord) { endSession(); return; }
+  }
+
   hintsUsedThisWord = 0;
 
   document.getElementById('game-definition').textContent = currentWord.aiAnalysis?.definition || 'No definition available.';
@@ -114,7 +145,7 @@ async function nextRound() {
   if (selectedMode === 'mission') {
     renderMissionObjectives(modeInstance?.objectives);
   } else if (missionEl) {
-    missionEl.innerHTML = ''; // clear leftover objectives from a previous mission game
+    missionEl.innerHTML = '';
   }
 }
 
@@ -135,18 +166,33 @@ async function processResult(result, revealWord, word) {
   const feedback = document.getElementById('feedback-area');
   document.getElementById('answer-input').disabled = true;
 
+  // Bug 3: calculate XP once, reuse for display and persistence
+  const xp = calcXP(word, result, selectedMode);
+
   if (result.correct) {
-    feedback.innerHTML = `<span class="feedback-correct">✓ Correct! +${calcXP(word, result, selectedMode)} XP</span>`;
+    feedback.innerHTML = `<span class="feedback-correct">✓ Correct! +${xp} XP</span>`;
     sessionStats.correct += 1;
     sessionStats.streak += 1;
+    // Bug 1: track peak streak
+    if (sessionStats.streak > sessionStats.maxStreak) sessionStats.maxStreak = sessionStats.streak;
     modeInstance?.onCorrect?.(result.hintUsed);
+  } else if (result.skipped) {
+    // Bug 2: skip is a soft action — show neutral feedback, don't call onWrong
+    feedback.innerHTML = `<span class="feedback-wrong">→ Skipped: <strong>${word.text}</strong></span>`;
+    sessionStats.streak = 0;
+    modeInstance?.onSkip?.();
   } else {
-    feedback.innerHTML = `<span class="feedback-wrong">✗ The answer was: <strong>${revealWord || '(skipped)'}</strong></span>`;
+    feedback.innerHTML = `<span class="feedback-wrong">✗ The answer was: <strong>${revealWord}</strong></span>`;
     sessionStats.streak = 0;
     modeInstance?.onWrong?.();
   }
 
-  // Re-render mission objectives immediately after onCorrect/onWrong
+  // Race log: record every answered word
+  if (selectedMode === 'race') {
+    raceLog.push({ word, correct: result.correct, skipped: result.skipped });
+  }
+
+  // Re-render mission objectives immediately after onCorrect/onWrong/onSkip
   const missionEl = document.getElementById('mission-objectives');
   if (selectedMode === 'mission') {
     renderMissionObjectives(modeInstance?.objectives);
@@ -157,15 +203,10 @@ async function processResult(result, revealWord, word) {
   sessionStats.totalAnswered += 1;
   if (result.hintUsed) sessionStats.hintCount += 1;
 
-  // Check mission complete before scheduling next round
   if (selectedMode === 'mission' && modeInstance.isComplete?.()) { endSession(); return; }
 
-  // Schedule next round NOW (before async persistence) so the timer race condition
-  // in Survival mode can't prevent nextRound from being scheduled.
-  // nextRound() itself guards with isSessionActive.
   if (isSessionActive) setTimeout(() => nextRound(), 800);
 
-  // Persist result asynchronously — doesn't block the next round timer
   try {
     const newState = nextLearningState(word, result);
     const newStats = updateStats(word.stats, result);
@@ -173,7 +214,7 @@ async function processResult(result, revealWord, word) {
     const idx = words.findIndex(w => w.text.toLowerCase() === word.text.toLowerCase());
     if (idx !== -1) words[idx] = { ...words[idx], learningState: newState, stats: newStats };
     await updateWord(word.text, { learningState: newState, stats: newStats });
-    const xp = calcXP(word, result, selectedMode);
+    // Bug 3: reuse xp computed above
     if (xp > 0) await addXP(xp);
   } catch (err) {
     const fb = document.getElementById('feedback-area');
@@ -216,6 +257,6 @@ async function endSession() {
   const profile = await recordSession(sessionStats);
   const newAchievements = checkAchievements(profile, sessionStats);
   for (const a of newAchievements) await unlockAchievement(a.id, a.title);
-  renderResults(profile, sessionStats, newAchievements);
+  renderResults(profile, sessionStats, newAchievements, selectedMode === 'race' ? raceLog : null);
   showScreen('screen-results');
 }

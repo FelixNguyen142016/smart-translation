@@ -27,6 +27,7 @@ export class RaceMode {
 
   onCorrect() { this.progress = Math.min(100, this.progress + 20); }
   onWrong()   { this.progress = Math.max(0,  this.progress - 10); }
+  onSkip()    { this.progress = Math.max(0,  this.progress - 5); } // half penalty vs wrong
 
   end(reason) {
     this.active = false;
@@ -65,6 +66,7 @@ export class SurvivalMode {
     this.timeLeft = Math.max(0, this.timeLeft - 10);
     if (this.timeLeft <= 0 && this.active) this.end(); // end immediately; don't wait for next tick
   }
+  onSkip()    { this.timeLeft = Math.max(0, this.timeLeft - 5); } // half penalty vs wrong; never triggers immediate end
 
   end() {
     this.active = false;
@@ -115,6 +117,12 @@ export class MissionMode {
 
   onWrong() {
     this.totalAnswered += 1;
+    this.noHintStreak = 0;
+    this._updateObjectives();
+  }
+
+  onSkip() {
+    // Skip doesn't count as wrong for accuracy, but resets no-hint streak
     this.noHintStreak = 0;
     this._updateObjectives();
   }

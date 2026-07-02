@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getToken: () => ipcRenderer.invoke('get-token'),
   // Close this popup window
   closePopup: () => ipcRenderer.invoke('close-popup'),
-  // Listen for the word to analyze (sent by main process after hotkey)
-  onAnalyzeWord: (cb) => ipcRenderer.on('analyze-word', (_, word) => cb(word)),
+  // Listen for the word to analyze (sent by main process after hotkey or search bar)
+  // token: auth token; savedData: full word object if already in vocab, null if new word
+  onAnalyzeWord: (cb) => ipcRenderer.on('analyze-word', (_, word, token, savedData) => cb(word, token, savedData)),
 });

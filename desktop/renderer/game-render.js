@@ -22,7 +22,7 @@ export function renderMenu(profile) {
 }
 
 /** Render session summary on the results screen */
-export function renderResults(profile, sessionStats, newAchievements) {
+export function renderResults(profile, sessionStats, newAchievements, raceLog = null) {
   const el = document.getElementById('results-content');
   if (!el) return;
   const accuracy = sessionStats.totalAnswered > 0
@@ -30,13 +30,36 @@ export function renderResults(profile, sessionStats, newAchievements) {
   const titlesHtml = profile.titles?.length
     ? `<div class="results-titles">${profile.titles.map(t => `<span class="results-title-badge">${escapeHtml(t)}</span>`).join('')}</div>`
     : '';
+
+  // Race-only word review log
+  const raceReviewHtml = raceLog?.length ? `
+    <div class="race-review">
+      <div class="race-review-title">Word Review</div>
+      <div class="race-review-list">
+        ${raceLog.map(({ word, correct, skipped }) => {
+          const icon  = correct ? '✓' : skipped ? '→' : '✗';
+          const cls   = correct ? 'rr-correct' : skipped ? 'rr-skip' : 'rr-wrong';
+          const trans = word.aiAnalysis?.translation
+            ? `<span class="rr-trans">${escapeHtml(word.aiAnalysis.translation)}</span>` : '';
+          const def   = word.aiAnalysis?.definition
+            ? `<span class="rr-def">${escapeHtml(word.aiAnalysis.definition)}</span>` : '';
+          return `<div class="race-review-row ${cls}">
+            <span class="rr-icon">${icon}</span>
+            <span class="rr-word">${escapeHtml(word.text)}</span>
+            ${trans}${def}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>` : '';
+
   el.innerHTML = `
     <div class="results-stat"><span class="rs-big">${sessionStats.correct}</span><span>Correct</span></div>
     <div class="results-stat"><span class="rs-big">${accuracy}%</span><span>Accuracy</span></div>
     <div class="results-stat"><span class="rs-big">${sessionStats.wordsMastered}</span><span>Mastered</span></div>
     <div class="results-level">Level ${profile.level} · ${formatXPBar(profile)}</div>
     ${titlesHtml}
-    ${newAchievements.map(a => `<div class="achievement-unlock">🏆 ${escapeHtml(a.title)}: ${escapeHtml(a.desc)}</div>`).join('')}`;
+    ${newAchievements.map(a => `<div class="achievement-unlock">🏆 ${escapeHtml(a.title)}: ${escapeHtml(a.desc)}</div>`).join('')}
+    ${raceReviewHtml}`;
 }
 
 /** Render mission objective progress (called each round in mission mode) */

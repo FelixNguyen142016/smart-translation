@@ -117,20 +117,23 @@ async function _sendEmail(resendKey, to, code) {
     return;
   }
 
-  await fetch('https://api.resend.com/emails', {
+  const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${resendKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      // Update "from" after verifying your domain in Resend dashboard
-      from: 'Smart Translation <onboarding@resend.dev>',
+      from: 'Semantica <send@mysemantica.com>',
       to: [to],
-      subject: 'Your Smart Translation login code',
+      subject: 'Your Semantica login code',
       text: `Your login code is: ${code}\n\nThis code expires in 10 minutes.\n\nIf you did not request this, ignore this email.`,
     }),
   });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Email delivery failed (Resend ${res.status}): ${body}`);
+  }
 }
 
 function _isValidEmail(email) {

@@ -7,6 +7,7 @@ const AUTO_CLOSE_MS = 15000;
 let _autoCloseTimer = null;
 let _currentWord = null;
 let _currentAnalysis = null;
+let _token = null; // received with each analyze-word message from main process
 
 // ── Apply dark/light theme from shared settings ──────────────────────────────
 (function applyTheme() {
@@ -27,14 +28,24 @@ document.getElementById('close-btn').addEventListener('click', () => {
 });
 
 // ── Receive word from main process ──────────────────────────────────────────
-window.electronAPI.onAnalyzeWord(async (word) => {
+window.electronAPI.onAnalyzeWord(async (word, token, savedData) => {
   _currentWord = word;
   _currentAnalysis = null;
-  showLoading(word);
+  const lsToken = localStorage.getItem('cloud_auth_token');
+  _token = token || lsToken || null;
   resetAutoClose();
 
+  // Word already in vocab dashboard — render instantly, no API call needed
+  if (savedData?.aiAnalysis) {
+    _currentAnalysis = savedData.aiAnalysis;
+    renderResult(word, savedData.aiAnalysis, /* alreadySaved */ true);
+    return;
+  }
+
+  // New word — normal analyze flow
+  showLoading(word);
+
   try {
-    const token = (await window.electronAPI.getToken()) || localStorage.getItem('cloud_auth_token');
     const settings = JSON.parse(localStorage.getItem('extension_settings') || '{}');
     const targetLanguage = settings.targetLanguage || 'Spanish';
 
@@ -42,7 +53,7 @@ window.electronAPI.onAnalyzeWord(async (word) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(_token ? { 'Authorization': `Bearer ${_token}` } : {}),
       },
       body: JSON.stringify({ text: word, context: '', targetLanguage }),
     });
@@ -51,7 +62,7 @@ window.electronAPI.onAnalyzeWord(async (word) => {
     if (!res.ok) throw new Error(data.error || 'Analysis failed');
 
     _currentAnalysis = data;
-    renderResult(word, data);
+    renderResult(word, data, false);
   } catch (err) {
     renderError(word, err.message);
   }
@@ -71,7 +82,7 @@ function showLoading(word) {
 }
 
 // ── Render: full result ─────────────────────────────────────────────────────
-function renderResult(word, a) {
+function renderResult(word, a, alreadySaved = false) {
   const safeWord       = escHtml(word);
   const safePos        = escHtml(a.partOfSpeech || '');
   const safePhonetic   = escHtml(a.pronunciation || '');
@@ -81,7 +92,13 @@ function renderResult(word, a) {
   const safeEx         = escHtml(a.exampleSentence || '');
   const safeExTrans    = escHtml(a.exampleSentenceTranslated || '');
 
+  // "Already in dashboard" badge shown when opened from search bar
+  const savedBadge = alreadySaved
+    ? `<div style="display:inline-flex;align-items:center;gap:5px;background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.25);color:#0891b2;border-radius:999px;padding:3px 10px;font-size:11px;font-weight:700;margin-bottom:8px;">✓ Already in your dashboard</div>`
+    : '';
+
   content.innerHTML = `
+    ${savedBadge}
     <div class="word-row">
       <div class="word">${safeWord}</div>
       ${safePos ? `<div class="pos">${safePos}</div>` : ''}
@@ -98,7 +115,7 @@ function renderResult(word, a) {
       </div>` : ''}
   `;
 
-  renderFooter('idle');
+  renderFooter(alreadySaved ? 'already' : 'idle');
 }
 
 // ── Render: error state ─────────────────────────────────────────────────────
@@ -146,7 +163,7 @@ function renderFooter(state, message) {
 async function handleSave() {
   if (!_currentAnalysis || !_currentWord) return;
   try {
-    const token = await window.electronAPI.getToken();
+    const token = _token;
     if (!token) { renderFooter('error', 'Not logged in'); return; }
 
     // Fetch existing vocab, check for duplicates, prepend so newest word is first

@@ -1,0 +1,6 @@
+# Rust / Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# Node (if a package.json is added for the tauri CLI)
+node_modules/

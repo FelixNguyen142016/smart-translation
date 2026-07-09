@@ -89,6 +89,14 @@ Nothing built in Electron is a dead end — it all translates.
 
 ## Current Status
 
-**Phase: Electron (active development)**
+**Phase: Tauri migration started (3 July 2026)**
 
-Completing all features and fixing all bugs on the Electron version before migration begins. The migration date is undefined — migration triggers when the app is feature-complete and stable.
+The Tauri v2 project lives in `semantica-tauri/` — the Electron build in `desktop/` is kept intact as the legacy reference. See `semantica-tauri/SETUP.md` for structure, prerequisites, and the full Electron→Tauri change table.
+
+Key decisions made during the port:
+- All three preload scripts are replaced by a single `src/tauri-bridge.js` exposing the same `window.electronAPI` surface, so renderer files carry over byte-identical to Electron (only the HTML files gained a script tag and `data-tauri-drag-region` attributes).
+- Multi-arg `analyze-word` IPC became a single-object payload `{ word, token, savedData }`, with a `popup_ready` command handshake to avoid the emit-before-listener race on first popup open.
+- Search shortcut moved from `Ctrl+Shift+F` to `Cmd/Ctrl+Shift+D`; the `Cmd+Shift+T` clipboard shortcut was removed in favour of a system-tray icon that drops down the quick search bar.
+- `_authToken` / `_wordCache` moved into Tauri-managed `AppState` (Mutex) with equivalent commands.
+
+Remaining: `cargo tauri dev` smoke test on macOS + Windows (incl. the deferred Windows 401 verification), replace placeholder icons, set up `tauri-plugin-updater`, CI build workflow.

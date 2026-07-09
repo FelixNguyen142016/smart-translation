@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for all Semantica windows: core APIs (events, window drag) for the dashboard, search bar, and popup.",
+  "windows": ["main", "search", "popup"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "global-shortcut:default"
+  ]
+}

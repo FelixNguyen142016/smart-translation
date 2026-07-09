@@ -3,7 +3,7 @@ name: Build Semantica Desktop
 on:
   push:
     tags:
-      - 'v*'          # triggers on v0.1.0-beta.1, v1.0.0, etc.
+      - 'v0.*'        # legacy Electron builds only (v0.x.x)
   workflow_dispatch:  # allows manual trigger from GitHub Actions tab
 
 jobs:

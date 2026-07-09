@@ -25,14 +25,34 @@ export async function checkRateLimit(kv, userId, type) {
   // Seconds until next midnight UTC
   const now = new Date();
   const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
-  const ttl = Math.max(1, Math.floor((midnight - now) / 1000));
+  // Cloudflare KV requires expirationTtl >= 60 — a smaller value makes kv.put
+  // THROW, crashing every request in the last minute before midnight UTC
+  const ttl = Math.max(60, Math.floor((midnight - now) / 1000));
 
-  const current = parseInt((await kv.get(key)) || '0', 10);
+  // KV enforces hard caps that are easy to hit here: max 1 write/sec to the
+  // SAME key (both plans — two concurrent requests for the same user racing
+  // on this key will trip it), and on the free plan, max 1,000 writes/day to
+  // DIFFERENT keys account-wide (a large one-off bulk upload, e.g. the IPA
+  // dataset, can exhaust that instantly for the rest of the day). Either one
+  // throws from kv.get/kv.put. Rate limiting is a soft cost control, not a
+  // security boundary, so on any KV failure we fail OPEN (allow the request)
+  // rather than 500 the whole feature — logged so it's still visible.
+  let current = 0;
+  try {
+    current = parseInt((await kv.get(key)) || '0', 10);
+  } catch (err) {
+    console.error(`Rate limit KV read failed for ${key}: ${err?.message || err} — failing open`);
+    return { allowed: true, remaining: -1, limit };
+  }
 
   if (current >= limit) {
     return { allowed: false, remaining: 0, limit };
   }
 
-  await kv.put(key, String(current + 1), { expirationTtl: ttl });
+  try {
+    await kv.put(key, String(current + 1), { expirationTtl: ttl });
+  } catch (err) {
+    console.error(`Rate limit KV write failed for ${key}: ${err?.message || err} — failing open`);
+  }
   return { allowed: true, remaining: limit - current - 1, limit };
 }

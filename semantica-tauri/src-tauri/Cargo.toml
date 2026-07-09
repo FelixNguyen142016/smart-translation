@@ -1,0 +1,19 @@
+[package]
+name = "semantica-tauri"
+version = "0.2.0"
+description = "Semantica — AI vocabulary builder for B2–C1 English learners"
+edition = "2021"
+
+[lib]
+name = "semantica_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

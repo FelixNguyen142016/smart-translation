@@ -1,0 +1,1509 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Semantica</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <style>
+    /* =====================
+       DESIGN TOKENS
+    ====================== */
+    :root {
+      --brand: #06b6d4;
+      --brand-2: #38bdf8;
+      --brand-deep: #0891b2;
+      --brand-soft: rgba(6,182,212,0.07);
+      --brand-border: rgba(6,182,212,0.18);
+
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --text-soft: #94a3b8;
+
+      --success: #16a34a;
+      --danger: #ef4444;
+      --border: rgba(0,0,0,0.08);
+      --muted-bg: #f1f5f9;
+    }
+
+    /* =====================
+       BASE
+    ====================== */
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      color: var(--text-main);
+      background: #F8FAFC;
+    }
+
+    /* macOS traffic-light spacer */
+    #titlebar-spacer {
+      display: none;
+      height: 28px;
+      background: rgba(248,250,252,0.88);
+    }
+
+    /* =====================
+       LOGIN PAGE
+    ====================== */
+    /* ── Login page — two-column layout ── */
+    #login-page {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: #F8FAFC;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      overflow: hidden;
+    }
+
+    .lp-card {
+      width: 100%;
+      max-width: 920px;
+      display: flex;
+      align-items: stretch;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(15,23,42,0.12), 0 4px 16px rgba(15,23,42,0.06);
+      border: 1px solid rgba(0,0,0,0.06);
+      background: white;
+    }
+
+    /* Left: form panel */
+    .lp-form-panel {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 56px 48px;
+      width: 100%;
+      max-width: 420px;
+      flex-shrink: 0;
+      background: white;
+    }
+
+    .lp-logo-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 40px;
+    }
+
+    .lp-icon {
+      width: 32px; height: 32px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 12px rgba(6,182,212,0.30);
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+
+    .lp-title {
+      font-size: 18px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .lp-heading {
+      font-size: 32px;
+      font-weight: 700;
+      color: #111827;
+      line-height: 1.2;
+      margin: 0 0 8px;
+    }
+
+    .lp-subtitle {
+      font-size: 13px;
+      color: #64748b;
+      margin: 0 0 32px;
+      line-height: 1.6;
+    }
+
+    .lp-subtitle span { font-weight: 600; color: #374151; }
+
+    .lp-input {
+      width: 100%;
+      padding: 13px 20px;
+      border-radius: 999px;
+      border: 1px solid #e2e8f0;
+      font-size: 14px;
+      font-family: inherit;
+      background: white;
+      color: #1e293b;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      margin-bottom: 10px;
+      box-sizing: border-box;
+    }
+
+    .lp-input:focus {
+      outline: none;
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(6,182,212,0.12);
+    }
+
+    .lp-input-code {
+      text-align: center;
+      letter-spacing: 0.5em;
+      font-size: 20px;
+      font-weight: 700;
+      font-family: monospace;
+    }
+
+    .lp-btn {
+      width: 100%;
+      padding: 13px;
+      border-radius: 999px;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      background: #111827;
+      color: white;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    .lp-btn:hover { background: #1e293b; }
+    .lp-btn:active { transform: scale(0.98); }
+    .lp-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .lp-error {
+      color: var(--danger);
+      font-size: 12px;
+      margin-top: 8px;
+      display: none;
+    }
+
+    .lp-back {
+      display: block;
+      text-align: center;
+      margin-top: 10px;
+      font-size: 12px;
+      color: #94a3b8;
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-family: inherit;
+      width: 100%;
+      transition: color 0.15s;
+    }
+    .lp-back:hover { color: #475569; }
+
+    /* Right: illustration panel */
+    .lp-illustration-panel {
+      flex: 1;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #F4F4F0;
+      overflow: hidden;
+      padding: 40px 32px 80px;
+    }
+
+    .lp-main-img {
+      width: 100%;
+      max-width: 340px;
+      object-fit: contain;
+      user-select: none;
+      -webkit-user-drag: none;
+      position: relative;
+      z-index: 1;
+    }
+
+    .lp-deco {
+      position: absolute;
+      opacity: 0.13;
+      user-select: none;
+      pointer-events: none;
+    }
+
+    .lp-deco img { display: block; }
+
+    .lp-caption {
+      position: absolute;
+      bottom: 36px;
+      left: 0; right: 0;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 500;
+      color: #64748b;
+      padding: 0 40px;
+      line-height: 1.5;
+      z-index: 2;
+    }
+
+    .lp-caption strong { color: #1e293b; font-weight: 700; }
+
+    /* =====================
+       NAVIGATION
+    ====================== */
+    nav {
+      height: 60px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      background: rgba(248,250,252,0.88);
+      backdrop-filter: blur(18px) saturate(1.8);
+      -webkit-backdrop-filter: blur(18px) saturate(1.8);
+      border-bottom: 1px solid rgba(0,0,0,0.07);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-right: 20px;
+      flex-shrink: 0;
+    }
+
+    .nav-logo-icon {
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      box-shadow: 0 2px 8px rgba(6,182,212,0.30);
+    }
+
+    .nav-logo-text {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .nav-tabs {
+      position: relative;
+      display: flex;
+      align-items: stretch;
+      height: 60px;
+      gap: 2px;
+      flex: 1;
+      overflow-x: auto;
+    }
+
+    .nav-tab {
+      position: relative;
+      cursor: pointer;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+      font-weight: 500;
+      font-size: 13px;
+      white-space: nowrap;
+      transition: color 0.15s;
+      border: none;
+      background: none;
+      font-family: inherit;
+    }
+
+    .nav-tab:hover { color: var(--text-main); }
+
+    .nav-tab.active { color: var(--brand); }
+
+    /* Sliding indicator replaces the ::after underline */
+    #tab-indicator {
+      position: absolute;
+      bottom: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--brand), var(--brand-2));
+      border-radius: 2px 2px 0 0;
+      transition: left 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+                  width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+      pointer-events: none;
+    }
+
+    .nav-tab-icon,
+    .nav-tab-icon svg {
+      width: 14px;
+      height: 14px;
+      opacity: 0.65;
+      flex-shrink: 0;
+      stroke-width: 2;
+    }
+
+    .nav-tab.active .nav-tab-icon,
+    .nav-tab.active .nav-tab-icon svg { opacity: 1; }
+
+    .nav-dark-toggle {
+      margin-left: 8px;
+      width: 32px; height: 32px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 15px;
+      color: var(--text-muted);
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+
+    .nav-dark-toggle:hover { background: var(--brand-soft); color: var(--text-main); }
+
+    /* =====================
+       MAIN
+    ====================== */
+    #main-app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    main {
+      flex: 1;
+      padding: 28px 20px;
+      overflow-y: auto;
+      max-width: 1000px;
+      margin: 0 auto;
+      width: 100%;
+      position: relative; /* containing block for .tab-exit overlay */
+    }
+
+    /* Cross-dissolve tab content */
+    .view-section {
+      display: none;
+      opacity: 0;
+    }
+    .view-section.active {
+      display: block;
+      animation: tabFadeIn 0.22s ease forwards;
+    }
+    .view-section.tab-exit {
+      display: block;
+      /* Overlay while fading so the incoming section isn't pushed down */
+      position: absolute;
+      top: 28px;   /* matches main padding-top */
+      left: 20px;  /* matches main padding-left/right */
+      right: 20px;
+      animation: tabFadeOut 0.18s ease forwards;
+    }
+    @keyframes tabFadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes tabFadeOut {
+      from { opacity: 1; transform: translateY(0); }
+      to   { opacity: 0; transform: translateY(-4px); }
+    }
+
+    /* =====================
+       CARDS
+    ====================== */
+    .card {
+      background: rgba(255,255,255,0.92);
+      border: 1px solid rgba(0,0,0,0.07);
+      border-radius: 16px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.05);
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+
+    /* =====================
+       TABLE
+    ====================== */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-soft);
+      font-weight: 600;
+    }
+
+    tbody tr { transition: background 0.15s; }
+    tbody tr:hover { background: var(--brand-soft); }
+
+    .word-col { width: 20%; font-weight: 600; color: var(--text-main); }
+    .context-col { width: 45%; color: var(--text-muted); white-space: pre-line; }
+    .tags-col { width: 15%; }
+    .actions-col { width: 20%; text-align: right; }
+
+    /* =====================
+       TAGS — gradient pill style
+    ====================== */
+    .tag {
+      display: inline-block;
+      background: var(--brand-soft);
+      color: var(--brand);
+      border: 1px solid var(--brand-border);
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      margin: 0 4px 4px 0;
+      letter-spacing: 0.01em;
+    }
+
+    /* Tag cloud chips (clickable, stackable) */
+    .tag-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #fff;
+      color: #475569;
+      border: 1px solid var(--border);
+      padding: 5px 12px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s, box-shadow 0.15s;
+      user-select: none;
+    }
+    .tag-chip:hover { border-color: var(--brand); color: var(--brand); }
+    .tag-chip.active {
+      background: var(--brand);
+      color: #fff;
+      border-color: var(--brand);
+      box-shadow: 0 4px 12px rgba(6,182,212,0.25);
+    }
+    .tag-chip .tag-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 99px;
+      font-size: 9px;
+      font-weight: 700;
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .tag-chip.active .tag-count {
+      background: rgba(255,255,255,0.25);
+      color: #fff;
+    }
+    html.dark .tag-chip { background: rgba(255,255,255,0.05); color: #94a3b8; border-color: rgba(255,255,255,0.1); }
+    html.dark .tag-chip:hover { color: var(--brand); border-color: var(--brand); }
+
+    /* =====================
+       BUTTONS
+    ====================== */
+    button {
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: inherit;
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: white;
+      box-shadow: 0 2px 12px var(--brand-border);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 18px var(--brand-border);
+    }
+
+    .btn-danger { background: var(--danger); color: white; }
+
+    .btn-ghost {
+      background: var(--brand-soft);
+      color: var(--brand);
+      border: 1px solid var(--brand-border);
+      margin-right: 5px;
+    }
+
+    .btn-ghost:hover { background: var(--brand-soft); filter: brightness(1.15); }
+
+    .btn-icon {
+      font-size: 16px;
+      padding: 6px 8px;
+      background: transparent;
+      border-radius: 8px;
+    }
+
+    .btn-icon:hover { background: var(--brand-soft); }
+
+    /* =====================
+       AI RESULT — nested glass card
+    ====================== */
+    /* .ai-result is a display wrapper only — visual styling comes from .ai-card-bg */
+    .ai-result {
+      display: none;
+      font-size: 14px;
+      line-height: 1.5;
+      white-space: pre-line;
+    }
+
+    .ai-result.visible { display: block; }
+
+    /* =====================
+       FORMS / SETTINGS
+    ====================== */
+    .form-group { margin-bottom: 20px; }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--brand-border);
+      font-size: 14px;
+      font-family: inherit;
+      background: rgba(255,255,255,0.7);
+      backdrop-filter: blur(8px);
+      color: var(--text-main);
+      transition: all 0.15s;
+    }
+
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px var(--brand-soft);
+    }
+
+    .api-note {
+      font-size: 12px;
+      color: var(--text-soft);
+      margin-top: 6px;
+    }
+
+    /* =====================
+       FLASHCARDS — full glass card
+    ====================== */
+    .flashcard-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 400px;
+      padding: 8px 0;
+    }
+
+    /* perspective-card is the outer wrapper for 3D flip */
+    .perspective-card.flashcard {
+      background: none;
+      border: none;
+      box-shadow: none;
+      padding: 0;
+      perspective: 1200px;
+      cursor: pointer;
+      width: 100%;
+      max-width: 560px;
+    }
+
+    .flashcard-content {
+      width: 100%;
+      min-height: 220px;
+      background: rgba(255,255,255,0.92);
+      border: 1px solid rgba(0,0,0,0.07);
+      border-radius: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.04), 0 8px 32px rgba(6,182,212,0.08);
+      padding: 36px 28px 28px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .fc-word {
+      font-size: clamp(36px, 6vw, 52px);
+      font-weight: 700;
+      margin-bottom: 10px;
+      line-height: 1.1;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .fc-phonetic {
+      font-size: 14px;
+      color: var(--text-soft);
+      font-family: monospace;
+      margin-bottom: 24px;
+    }
+
+    .fc-translation { color: var(--brand); font-weight: 700; font-size: 18px; margin-bottom: 8px; }
+    .fc-def-native  { font-size: 15px; color: var(--text-main); line-height: 1.6; white-space: pre-line; margin-bottom: 8px; }
+    .fc-def-en-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 3px; }
+    .fc-def-en      { font-size: 13px; color: var(--text-muted); line-height: 1.55; white-space: pre-line; margin-bottom: 8px; }
+    .fc-example-block { border-top: 1px solid var(--border); padding-top: 8px; }
+    .fc-example     { font-size: 13px; color: var(--text-muted); font-style: italic; line-height: 1.5; margin-bottom: 3px; }
+    .fc-example-trans { font-size: 12px; color: var(--text-muted); opacity: 0.7; line-height: 1.5; }
+
+    .fc-hint {
+      margin-top: 20px;
+      font-size: 12px;
+      color: var(--text-soft);
+      background: var(--brand-soft);
+      border: 1px solid var(--brand-border);
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-weight: 500;
+    }
+
+    .review-controls {
+      margin-top: 20px;
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      max-width: 660px; /* wider to fit 3 buttons */
+    }
+
+    .review-btn {
+      padding: 10px 28px;
+      border-radius: 999px;
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 12px;
+      letter-spacing: 0.05em;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+    }
+
+    .btn-hard { background: linear-gradient(135deg, #ef4444, #f87171); color: white; }
+    .btn-good { background: linear-gradient(135deg, #22c55e, #4ade80); color: white; }
+
+    /* ── Account & Settings two-column layout ── */
+    .acct-grid { display:grid; grid-template-columns:340px 1fr; gap:20px; align-items:start; max-width:1040px; margin:0 auto; }
+    .acct-col-left { display:flex; flex-direction:column; gap:16px; }
+    @media (max-width:920px){ .acct-grid{ grid-template-columns:1fr; } }
+    .howto-card { padding:0 !important; overflow:hidden; }
+    .howto-head { display:flex; align-items:center; gap:12px; padding:20px 24px 16px; border-bottom:1px solid var(--border); background:linear-gradient(135deg,var(--brand-soft),transparent); }
+    .howto-head-icon { width:32px; height:32px; border-radius:10px; background:linear-gradient(135deg,var(--brand),var(--brand-2)); display:flex; align-items:center; justify-content:center; box-shadow:0 4px 10px rgba(6,182,212,0.25); flex-shrink:0; }
+    .howto-steps { position:relative; padding:20px 24px 6px; }
+    .howto-line { position:absolute; left:37px; top:34px; bottom:34px; width:1px; background:linear-gradient(to bottom,var(--brand-border),var(--border),transparent); }
+    .howto-step { display:flex; gap:14px; padding-bottom:18px; position:relative; }
+    .howto-dot { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; z-index:1; box-shadow:0 0 0 3px var(--card-bg,#fff); }
+    .howto-num { font-size:10px; font-weight:700; letter-spacing:0.12em; color:var(--text-muted); opacity:0.65; margin-right:6px; }
+    .howto-title { font-size:13.5px; font-weight:700; display:inline; }
+    .howto-title-vi { font-size:12px; font-weight:600; font-style:italic; color:var(--brand); opacity:0.8; display:inline; margin-left:4px; }
+    .howto-body { font-size:12px; color:var(--text-muted); line-height:1.6; margin-top:3px; }
+    .howto-body-vi { font-size:11.5px; color:var(--text-soft,var(--text-muted)); line-height:1.55; margin-top:4px; font-style:italic; opacity:0.85; }
+    .howto-subtitle-vi { font-size:11px; color:var(--text-soft,var(--text-muted)); margin-top:1px; font-style:italic; opacity:0.85; display:inline; margin-left:4px; }
+    .howto-tip { margin:6px 20px 20px; padding:12px 14px; border-radius:12px; background:var(--brand-soft); border:1px solid var(--brand-border); font-size:12px; line-height:1.55; display:flex; gap:10px; align-items:flex-start; }
+    .howto-tip-i { width:18px; height:18px; border-radius:50%; background:var(--brand); color:#fff; font-size:10px; font-weight:900; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px; }
+    .howto-tip-vi { font-size:11px; margin-top:5px; font-style:italic; opacity:0.85; }
+
+    /* =====================
+       PAGE TRANSITIONS
+    ====================== */
+    /* Login page exit */
+    #login-page.lp-exit {
+      animation: lpFadeOut 0.32s ease forwards;
+    }
+    /* Main app entrance */
+    #main-app.app-enter {
+      animation: appSlideIn 0.38s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+    /* Login page entrance (when logging out) */
+    #login-page.lp-enter {
+      animation: lpFadeIn 0.28s ease forwards;
+    }
+    @keyframes lpFadeOut {
+      from { opacity: 1; transform: scale(1); }
+      to   { opacity: 0; transform: scale(0.97); }
+    }
+    @keyframes lpFadeIn {
+      from { opacity: 0; transform: scale(0.97); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    @keyframes appSlideIn {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* =====================
+       DARK MODE
+    ====================== */
+    html.dark {
+      --text-main: #e2e8f0;
+      --text-muted: #94a3b8;
+      --text-soft: #64748b;
+      --border: rgba(255,255,255,0.08);
+      --muted-bg: #1e293b;
+    }
+    html.dark body { background: #0F172A; color: #e2e8f0; }
+    html.dark #login-page { background: #0F172A; }
+    html.dark .lp-card { border-color: rgba(255,255,255,0.07); }
+    html.dark .lp-form-panel { background: #1e293b; }
+    html.dark .lp-heading { color: #f1f5f9; }
+    html.dark .lp-subtitle { color: #94a3b8; }
+    html.dark .lp-subtitle span { color: #e2e8f0; }
+    html.dark .lp-input { background: rgba(255,255,255,0.05); color: #e2e8f0; border-color: rgba(255,255,255,0.1); }
+    html.dark .lp-btn { background: #e2e8f0; color: #0f172a; }
+    html.dark .lp-btn:hover { background: #f1f5f9; }
+    html.dark .lp-illustration-panel { background: #162032; }
+    html.dark .lp-deco { opacity: 0.08; filter: invert(1); }
+    /* SVG illustration theme colors */
+    .lp-svg-brand { fill: var(--brand); }
+    .lp-svg-dark  { fill: #090814; }
+    html.dark .lp-svg-dark { fill: #c8d6e8; }
+    html.dark .lp-caption { color: #64748b; }
+    html.dark .lp-caption strong { color: #94a3b8; }
+    html.dark .card {
+      background: rgba(30,41,59,0.90) !important;
+      border-color: rgba(255,255,255,0.07) !important;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2), 0 4px 16px rgba(0,0,0,0.18) !important;
+    }
+    html.dark nav { background: rgba(15,23,42,0.88); border-bottom-color: rgba(255,255,255,0.07); }
+    html.dark #titlebar-spacer { background: rgba(15,23,42,0.88); }
+    html.dark input, html.dark select { background: rgba(255,255,255,0.05); color: var(--text-main); border-color: rgba(255,255,255,0.10); }
+    html.dark table { color: var(--text-main); }
+    html.dark .flashcard { background: rgba(15,23,42,0.80); border-color: rgba(255,255,255,0.08); }
+    html.dark td, html.dark th { color: #e2e8f0; }
+    html.dark .context-col div, html.dark .ai-result > div { color: #94a3b8; }
+    html.dark .flip-card-face { background: rgba(30,41,59,0.92); border-color: rgba(255,255,255,0.08); }
+
+    /* Flashcard flip — grid approach allows variable height on both faces */
+    .perspective-card { perspective: 1200px; }
+    .flip-card-inner {
+      display: grid;
+      transform-style: preserve-3d;
+      transition: transform 0.55s cubic-bezier(0.4,0,0.2,1);
+    }
+    .flip-card-inner.flipped { transform: rotateY(180deg); }
+    .flip-card-face {
+      grid-area: 1 / 1;           /* both faces share the same grid cell */
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+    .flip-card-back {
+      transform: rotateY(180deg); /* no absolute/inset — grid handles sizing */
+    }
+
+    /* =====================
+       THEME — hue slider
+    ====================== */
+    #accent-hue { width: 100%; margin-top: 8px; accent-color: var(--brand); cursor: pointer; }
+
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; }
+    .toggle-switch { position: relative; width: 44px; height: 24px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-track {
+      position: absolute; inset: 0; border-radius: 999px;
+      background: var(--brand-border); cursor: pointer; transition: background 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-track { background: var(--brand); }
+    .toggle-track::after {
+      content: ''; position: absolute; top: 3px; left: 3px;
+      width: 18px; height: 18px; border-radius: 50%; background: white;
+      transition: transform 0.2s;
+    }
+    .toggle-switch input:checked + .toggle-track::after { transform: translateX(20px); }
+
+    /* =====================
+       GAME — shared screens
+    ====================== */
+    .game-screen { display: none; }
+    .game-screen.active { display: block; }
+
+    .game-menu-card { max-width: 480px; margin: 0 auto; text-align: center; }
+    .game-menu-card h2 { margin-top: 0; font-size: 22px;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .menu-actions { display: flex; gap: 12px; justify-content: center; margin-top: 20px; }
+
+    #menu-profile { margin: 16px 0; text-align: left; }
+    .profile-level { font-size: 18px; font-weight: 700; color: var(--brand); margin-bottom: 6px; }
+    .profile-xp-bar { height: 8px; background: var(--brand-soft); border-radius: 999px; overflow: hidden; margin-bottom: 4px; }
+    .profile-xp-fill { height: 100%; background: linear-gradient(90deg, var(--brand), var(--brand-2)); border-radius: 999px; transition: width 0.4s ease; }
+    .profile-xp-label { font-size: 12px; color: var(--text-soft); margin-bottom: 10px; }
+    .profile-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-muted); font-weight: 500; }
+
+    .mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+    .mode-card {
+      background: rgba(255,255,255,0.6); border: 2px solid var(--glass-border);
+      border-radius: 14px; padding: 20px 12px; text-align: center; cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .mode-card:hover { border-color: var(--brand-border); background: var(--brand-soft); }
+    .mode-card.selected { border-color: var(--brand); background: var(--brand-soft);
+      box-shadow: 0 0 0 3px var(--brand-border); }
+    .mode-icon { font-size: 28px; margin-bottom: 8px; }
+    .mode-name { font-weight: 700; font-size: 15px; color: var(--text-main); margin-bottom: 4px; }
+    .mode-desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+
+    .game-play-card { max-width: 600px; margin: 0 auto; }
+    .mode-status-bar { margin-bottom: 16px; }
+    #mode-status { font-size: 13px; font-weight: 600; color: var(--brand); }
+    .race-bar-wrap { height: 6px; background: var(--brand-soft); border-radius: 999px; overflow: hidden; margin-top: 6px; }
+    #race-bar { height: 100%; background: linear-gradient(90deg, var(--brand), var(--brand-2)); border-radius: 999px; transition: width 0.2s linear; }
+
+    .game-definition-box { background: var(--brand-soft); border: 1px solid var(--brand-border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+    .game-def-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-soft); margin-bottom: 8px; }
+    .game-definition-text { font-size: 16px; color: var(--text-main); line-height: 1.6; }
+
+    .hint-area { min-height: 24px; margin-bottom: 10px; }
+    .hint-item { font-size: 13px; color: var(--brand); font-weight: 500; padding: 4px 0; }
+
+    .game-input {
+      width: 100%; padding: 14px 16px; border-radius: 12px;
+      border: 2px solid var(--brand-border); font-size: 18px; font-weight: 600;
+      font-family: inherit; background: rgba(255,255,255,0.8);
+      color: var(--text-main); transition: all 0.15s; margin-bottom: 12px;
+    }
+    .game-input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+
+    .feedback-area { min-height: 28px; margin-bottom: 12px; font-size: 15px; font-weight: 600; }
+    .feedback-correct { color: #16a34a; }
+    .feedback-wrong   { color: var(--danger); }
+
+    .game-actions { display: flex; gap: 8px; align-items: center; }
+    #btn-quit-game { margin-left: auto; }
+
+    .obj { font-size: 13px; color: var(--text-muted); padding: 2px 0; }
+    .obj.done { color: #16a34a; font-weight: 600; }
+    #mission-objectives { margin-top: 8px; }
+
+    .results-stat { display: inline-block; margin: 0 16px 16px; }
+    .rs-big { display: block; font-size: 40px; font-weight: 700;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .results-level { font-size: 14px; color: var(--text-muted); margin: 8px 0 12px; }
+    .results-titles { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 12px; }
+    .results-title-badge {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: #fff; font-size: 11px; font-weight: 700; border-radius: 999px;
+      padding: 3px 10px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .achievement-unlock {
+      background: rgba(234,179,8,0.1); border: 1px solid rgba(234,179,8,0.3);
+      color: #a16207; border-radius: 8px; padding: 8px 14px; margin: 6px 0;
+      font-size: 13px; font-weight: 600;
+    }
+    .race-review { margin-top: 20px; text-align: left; }
+    .race-review-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-soft); margin-bottom: 10px; }
+    .race-review-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow-y: auto; padding-right: 4px; }
+    .race-review-row { display: grid; grid-template-columns: 20px 120px auto 1fr; align-items: baseline; gap: 8px; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+    .rr-correct { background: rgba(22,163,74,0.08); }
+    .rr-wrong   { background: rgba(239,68,68,0.08); }
+    .rr-skip    { background: rgba(100,116,139,0.08); }
+    .rr-icon    { font-size: 11px; font-weight: 700; }
+    .rr-correct .rr-icon { color: #16a34a; }
+    .rr-wrong   .rr-icon { color: #ef4444; }
+    .rr-skip    .rr-icon { color: #64748b; }
+    .rr-word    { font-weight: 700; color: var(--text-main); }
+    .rr-trans   { font-size: 12px; color: var(--brand); font-weight: 600; }
+    .rr-def     { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .review-item { display: grid; grid-template-columns: 140px auto 1fr; gap: 12px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--border); }
+    .review-word { font-weight: 700; color: var(--brand); font-size: 15px; }
+    .review-state { font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+    .state-relearn  { background: rgba(239,68,68,0.1);   color: #dc2626; }
+    .state-learning { background: rgba(234,179,8,0.1);   color: #b45309; }
+    .state-new      { background: var(--brand-soft);     color: var(--brand-deep); }
+    .state-known    { background: rgba(34,197,94,0.1);   color: #16a34a; }
+    .review-def { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* ── SRS strip (Review mode) ── */
+    .srs-strip-inner { background:rgba(255,255,255,0.92);border:1px solid var(--border);border-radius:14px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px; }
+    html.dark .srs-strip-inner { background:rgba(30,41,59,0.90); }
+    /* ── FITB (Practice tab) ── */
+    .fitb-card { width:100%;max-width:560px;background:rgba(255,255,255,0.92);border:1px solid rgba(0,0,0,0.07);border-radius:20px;box-shadow:0 2px 4px rgba(0,0,0,0.04),0 8px 32px rgba(6,182,212,0.08);padding:32px 28px; }
+    .fitb-input { width:100%;padding:14px 16px;border-radius:12px;border:2px solid var(--brand-border);font-size:18px;font-weight:600;font-family:inherit;background:rgba(255,255,255,0.8);color:var(--text-main);transition:all 0.15s;margin-bottom:12px;text-align:center; }
+    .fitb-input:focus { outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft); }
+    .fitb-input.correct { border-color:#22c55e;background:rgba(34,197,94,0.05); }
+    .fitb-input.wrong   { border-color:#ef4444;background:rgba(239,68,68,0.05); }
+    .fitb-feedback { font-size:15px;font-weight:600;min-height:26px;margin-bottom:8px;text-align:center; }
+    .fitb-reveal { font-size:13px;color:var(--text-muted);text-align:center;line-height:1.5;border-top:1px solid var(--border);padding-top:10px;margin-top:4px;margin-bottom:12px; }
+    html.dark .fitb-card { background:rgba(30,41,59,0.92);border-color:rgba(255,255,255,0.08); }
+    html.dark .fitb-input { background:rgba(255,255,255,0.05); }
+    /* Word lookup modal */
+    #word-lookup-modal.open { display: flex !important; }
+    #word-lookup-card { scrollbar-width: thin; }
+    /* Search input focus ring */
+    #vocab-search-input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(6,182,212,0.10); }
+    /* AI result card — light vs dark */
+    .ai-card-bg {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(6,182,212,0.15);
+      background: linear-gradient(135deg, rgba(236,254,255,0.9), rgba(240,249,255,0.6));
+      padding: 12px 14px;
+      margin-top: 6px;
+    }
+    html.dark .ai-card-bg {
+      background: linear-gradient(135deg, rgba(6,182,212,0.08), rgba(14,165,233,0.05));
+      border-color: rgba(6,182,212,0.20);
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- ══ LOGIN PAGE ══ -->
+<div id="login-page" style="display:none;">
+
+  <!-- Background scattered icons -->
+  <!-- Top-left cluster -->
+  <div class="lp-deco" style="top:4%;left:2%;transform:rotate(-15deg);"><img src="./brain (1).svg" width="56" draggable="false"/></div>
+  <div class="lp-deco" style="top:14%;left:6%;transform:rotate(22deg);"><img src="./pencil-sparkles.svg" width="40" draggable="false"/></div>
+  <div class="lp-deco" style="top:8%;left:14%;transform:rotate(-8deg);"><img src="./notebook-pen.svg" width="48" draggable="false"/></div>
+  <div class="lp-deco" style="top:22%;left:2%;transform:rotate(30deg);"><img src="./gamepad-2.svg" width="44" draggable="false"/></div>
+  <div class="lp-deco" style="top:32%;left:10%;transform:rotate(-20deg);"><img src="./book-open-text (1).svg" width="52" draggable="false"/></div>
+  <div class="lp-deco" style="top:3%;left:22%;transform:rotate(12deg);"><img src="./monitor-check.svg" width="38" draggable="false"/></div>
+
+  <!-- Top-right cluster -->
+  <div class="lp-deco" style="top:3%;right:3%;transform:rotate(18deg);"><img src="./pencil-sparkles.svg" width="54" draggable="false"/></div>
+  <div class="lp-deco" style="top:12%;right:8%;transform:rotate(-25deg);"><img src="./brain (1).svg" width="42" draggable="false"/></div>
+  <div class="lp-deco" style="top:6%;right:16%;transform:rotate(8deg);"><img src="./gamepad-2.svg" width="46" draggable="false"/></div>
+  <div class="lp-deco" style="top:22%;right:2%;transform:rotate(-14deg);"><img src="./monitor-check.svg" width="50" draggable="false"/></div>
+  <div class="lp-deco" style="top:30%;right:12%;transform:rotate(28deg);"><img src="./notebook-pen.svg" width="38" draggable="false"/></div>
+  <div class="lp-deco" style="top:2%;right:24%;transform:rotate(-10deg);"><img src="./book-open-text (1).svg" width="44" draggable="false"/></div>
+
+  <!-- Bottom-left cluster -->
+  <div class="lp-deco" style="bottom:4%;left:3%;transform:rotate(20deg);"><img src="./monitor-check.svg" width="52" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:14%;left:7%;transform:rotate(-18deg);"><img src="./book-open-text (1).svg" width="46" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:6%;left:15%;transform:rotate(10deg);"><img src="./brain (1).svg" width="40" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:24%;left:2%;transform:rotate(-28deg);"><img src="./pencil-sparkles.svg" width="48" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:3%;left:24%;transform:rotate(16deg);"><img src="./gamepad-2.svg" width="42" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:18%;left:13%;transform:rotate(6deg);"><img src="./notebook-pen.svg" width="36" draggable="false"/></div>
+
+  <!-- Bottom-right cluster -->
+  <div class="lp-deco" style="bottom:5%;right:4%;transform:rotate(-16deg);"><img src="./notebook-pen.svg" width="54" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:15%;right:9%;transform:rotate(24deg);"><img src="./gamepad-2.svg" width="44" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:7%;right:17%;transform:rotate(-8deg);"><img src="./pencil-sparkles.svg" width="40" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:26%;right:3%;transform:rotate(14deg);"><img src="./brain (1).svg" width="48" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:4%;right:25%;transform:rotate(-22deg);"><img src="./monitor-check.svg" width="42" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:20%;right:14%;transform:rotate(30deg);"><img src="./book-open-text (1).svg" width="38" draggable="false"/></div>
+
+  <div class="lp-card">
+
+    <!-- Left: form panel -->
+    <div class="lp-form-panel">
+      <!-- Logo -->
+      <div class="lp-logo-wrap">
+        <div class="lp-icon">✦</div>
+        <span class="lp-title">Semantica</span>
+      </div>
+
+      <!-- Step 1: email -->
+      <div id="lp-step-email">
+        <h1 class="lp-heading">Ready to level up?</h1>
+        <p class="lp-subtitle">Your personal storage for advanced English. Let's elevate your vocabulary today.</p>
+        <input id="lp-email" class="lp-input" type="email" placeholder="Email address" autocomplete="email" />
+        <button id="lp-send-btn" class="lp-btn">Send Code</button>
+        <div id="lp-send-error" class="lp-error"></div>
+      </div>
+
+      <!-- Step 2: code -->
+      <div id="lp-step-code" style="display:none;">
+        <h1 class="lp-heading">Check your inbox</h1>
+        <p class="lp-subtitle" id="lp-code-hint">We sent a 6-digit code. Enter it below.</p>
+        <input id="lp-code" class="lp-input lp-input-code" type="text" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code" />
+        <button id="lp-verify-btn" class="lp-btn">Verify &amp; Sign In</button>
+        <div id="lp-verify-error" class="lp-error"></div>
+        <button id="lp-back-btn" class="lp-back">← Use a different email</button>
+      </div>
+    </div>
+
+    <!-- Right: illustration panel -->
+    <div class="lp-illustration-panel">
+
+      <!-- Main illustration (inline so CSS vars can theme the brand color) -->
+      <svg class="lp-main-img lp-main-svg" xmlns="http://www.w3.org/2000/svg" width="927.67711" height="702.45932" viewBox="0 0 927.67711 702.45932" xmlns:xlink="http://www.w3.org/1999/xlink" role="img" aria-label="Creative flow illustration"><path d="M351.52225,625.1482c-.89552,0-1.78795-.15594-2.64333-.46783l-57.39199-20.85943c-3.36129-1.2213-5.35459-4.31393-5.07821-7.88057.27792-3.56664,2.72516-6.31496,6.23621-7.00204l158.51002-31.03284c1.27843-.25322,2.61245-.17138,3.85228.22388l44.29115,14.19398c3.36746,1.07926,5.47965,4.06072,5.38084,7.59647-.10036,3.53576-2.37621,6.3937-5.8008,7.2815l-145.40919,37.69828c-.64076.16675-1.29542.24858-1.94698.24858Z" class="lp-svg-brand"/><path d="M512.83197,523.28113l141.12369,16.95958-25.72875,49.61789-124.4237-18.06285c-10.24489,7.26556-24.48338,10.50199-39.28606,7.74716-25.90086-4.82028-43.66358-26.10432-39.67444-47.53954,3.98922-21.4352,28.21955-34.90413,54.12049-30.08384,14.80276,2.75485,26.92348,10.89728,33.86878,21.3616Z" fill="#ed9da0"/><path d="M708.78454,125.08156c-16.1846-59.88187-77.8488-95.30558-137.73067-79.12098-59.88187,16.1846-95.30599,77.84891-79.12138,137.73078,13.12583,48.56462,56.16564,81.03605,103.9071,82.94446l58.40037,132.85942,82.78765-117.92531s-31.03073-23.16417-52.37082-52.97199c24.01096-27.32507,34.33002-65.7687,24.12774-103.51637Z" fill="#ed9da0"/><path d="M822.38943,357.01895c-15.11423-37.3823-51.29448-61.85206-91.61477-62.24058-50.8541-.49003-115.58463,12.80884-118.2538,83.09081-4.41951,116.3701,0,69.53039,0,69.53039,0,0-35.10686,87.41569,0,129.57937,35.10686,42.16368,65.72092,125.26527,65.72092,125.26527h213.33189s-36.82775-97.33108-30.50353-163.73539c4.29285-45.0749-16.18299-125.84585-38.68071-181.48986Z" class="lp-svg-brand"/><path d="M523.51491,463.4087l-135.97073,132.80862,8.20932,2.89699,137.24773-129.38138s1.58105-9.48633-9.48633-6.32422Z" class="lp-svg-dark"/><path d="M927.41765,397.83063c-5.84404,10.53625-22.72226,9.93949-31.04982,1.23211-8.32756-8.70738-9.7187-21.98423-8.41248-33.96103,1.30468-11.97834,4.8358-23.75597,4.59262-35.80225-.46397-22.98551-14.48271-43.42188-29.88256-60.49234-15.39985-17.06968-33.00761-32.75053-43.52919-53.19154l-1.27148-1.30854c4.49458-14.84787-6.40682-30.01534-18.68007-39.5036-12.27402-9.48826-26.99065-16.72382-35.3707-29.77949-7.12864-11.10637-8.56997-24.76999-11.68962-37.59367-12.08874-49.68589-53.87862-90.90217-103.72739-102.3019-49.84878-11.39973-105.39877,7.55594-137.88142,47.04951l.78126-1.63741c-21.10029,4.27109-39.04851,21.39172-44.31123,42.2662-1.52393,6.04669-2.03113,12.54769-.00463,18.445s6.97116,11.0477,13.13017,12.02428c6.606,1.04799,13.21509-2.83941,17.28584-8.14652,4.07075-5.3075,6.10034-11.85714,8.05427-18.25431,7.33245,26.93583,30.35116,48.9741,57.57958,55.12926-.94879,7.31431,2.38625,15.02813,8.36539,19.34747,5.97836,4.31895,14.34915,5.06277,20.9953,1.86476l1.56639-1.49112c7.69066.34586,15.38132.6921,23.0712,1.03795-12.35971,16.83808-17.45954,38.82424-13.77479,59.38413,3.68475,20.5595,16.10391,39.40633,33.54183,50.90333,13.92996,9.18409,30.38281,13.60147,46.54925,17.72935,16.16644,4.12865,32.65403,8.22565,46.909,16.89598,14.25574,8.6711,26.1978,22.83343,27.84139,39.43759s-9.8098,34.73303-26.38617,36.6391c12.61293,7.74393,25.22508,15.48785,37.83801,23.23178-1.12558,28.56552,20.07662,56.43316,47.9072,62.96814-2.5476,8.54835-5.09442,17.0967-7.64125,25.64505,15.48013-5.50513,32.42784-.49099,48.77261,1.17653,16.34555,1.66752,36.16277-2.29901,42.44299-17.48116,6.6778-16.14251-6.07332-33.25697-17.93432-46.08065,24.14892,2.40864,47.30118-21.29715,44.32281-45.38199Z" class="lp-svg-dark"/><path d="M159.93668,445.08086l-.0633-1.6073-9.62066-241.14948,10.74778-7.73698.579.04632,224.55149,18.12037,24.9819,11.45493.04478.96191,9.6608,204.9427-260.88179,14.96753ZM153.47967,203.89587l9.48942,237.84378,254.54213-14.60314-9.4678-200.85574-22.72458-10.42045-223.41356-18.02773-8.4256,6.06328Z" class="lp-svg-dark"/><path d="M387.93901,358.26798h-201.88404c-7.8991,0-14.32522-6.42612-14.32522-14.32368v-59.28956c0-3.9372,1.56561-7.60728,4.40812-10.33553,2.84713-2.73442,6.59751-4.14718,10.5347-3.98969l201.88559,8.71279c7.68448.31806,13.70608,6.60368,13.70608,14.30824v50.59376c0,7.89755-6.42612,14.32368-14.32522,14.32368Z" fill="#d6d6e3"/><path d="M268.96506,285.61915v67.8271c0,1.39153-.18991,2.75102-.55352,4.03177h-82.35691c-7.47836,0-13.53392-6.05556-13.53392-13.53392v-59.28956c0-7.69954,6.41918-13.85006,14.1191-13.53392l77.39218,3.3362c3.0355,2.75102,4.93308,6.73531,4.93308,11.16234Z" class="lp-svg-brand"/><rect x="281.18228" y="300.63358" width="57.49852" height="3.16211" class="lp-svg-dark"/><rect x="281.18228" y="318.229" width="102.40882" height="3.16211" class="lp-svg-dark"/><path d="M90.52929,99.95386l-82.30441-8.23106L0,7.83579l80.66005,9.87696,9.86924,82.24111ZM11.11834,88.83552l75.80109,7.57949-9.10342-75.86439L3.53267,11.45493l7.58567,77.3806Z" class="lp-svg-dark"/><rect x="43.66368" y="12.68513" width="3.16333" height="46.09528" transform="translate(5.04655 77.06107) rotate(-84.09386)" class="lp-svg-dark"/><rect x="43.66365" y="25.36803" width="3.16339" height="46.05107" transform="translate(-7.15476 88.93128) rotate(-84.65183)" class="lp-svg-dark"/><rect x="43.66385" y="36.07805" width="3.163" height="45.99687" transform="translate(-17.24883 99.47019) rotate(-85.4293)" class="lp-svg-dark"/><path d="M406.74028,144.2234l-82.30441-8.23106-8.22488-83.88701,80.66005,9.87696,9.86924,82.24111ZM327.32933,133.10506l75.80109,7.57949-9.10342-75.86439-74.28333-9.0957,7.58567,77.3806Z" class="lp-svg-dark"/><rect x="359.87467" y="56.95467" width="3.16333" height="46.09528" transform="translate(244.68515 431.30779) rotate(-84.09386)" class="lp-svg-dark"/><rect x="359.87464" y="69.63756" width="3.16339" height="46.05107" transform="translate(235.50609 443.90898) rotate(-84.65183)" class="lp-svg-dark"/><rect x="359.87484" y="80.34759" width="3.163" height="45.99687" transform="translate(229.63481 455.41728) rotate(-85.4293)" class="lp-svg-dark"/><path d="M248.38157,111.03977l-91.38467-11.45956V0l93.01822,14.62167-1.63355,96.4181ZM160.15901,96.78866l85.11912,10.67521,1.52856-90.14638L160.15901,3.69942v93.08924Z" class="lp-svg-dark"/><rect x="204.93126" y="11.826" width="3.16338" height="52.5567" transform="translate(143.83549 238.53158) rotate(-83.08877)" class="lp-svg-dark"/><rect x="203.35023" y="31.65779" width="3.16333" height="46.09528" transform="translate(129.42954 252.92036) rotate(-84.09386)" class="lp-svg-dark"/><path d="M413.63115,228.68323l-264.89927-19.81568v-17.14148c0-4.44363,1.88985-8.70198,5.1832-11.68344,3.29489-2.98146,7.72308-4.439,12.14201-3.99587l233.38316,23.32982c8.09055.80751,14.19089,7.54861,14.19089,15.67931v13.62733Z" class="lp-svg-dark"/><circle cx="173.31124" cy="193.83884" r="5.53369" fill="#fff"/><circle cx="192.28389" cy="197.00095" r="5.53369" fill="#fff"/><circle cx="209.6755" cy="198.582" r="5.53369" fill="#fff"/><path d="M463.55009,602.63742l137.42506,36.30253-32.33986,45.5855-120.73288-35.08699c-11.15079,5.7798-25.69994,7.01717-39.97978,2.24279-24.98602-8.35396-39.63642-31.88883-32.72285-52.56694,6.91365-20.67808,32.77305-30.66869,57.75914-22.31471,14.27992,4.7744,25.15887,14.51398,30.59116,25.83782Z" fill="#ed9da0"/><path d="M737.02762,447.39957s-6.00261,263.63664-91.97079,254.84464c-85.96818-8.79201-114.42717-19.85939-114.42717-19.85939,0,0-17.3916-66.40431,12.64844-67.98536,30.04004-1.58105,69.24277-8.97626,69.24277-8.97626v-191.20858" class="lp-svg-brand"/></svg>
+
+      <p class="lp-caption">Build a vocabulary that levels up yourself with <strong>Semantica.</strong></p>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══ MAIN APP ══ -->
+<div id="main-app" style="display:none;">
+
+<!-- macOS titlebar spacer (shown via JS when platform === darwin) -->
+<div id="titlebar-spacer" data-tauri-drag-region></div>
+
+<nav data-tauri-drag-region>
+  <div class="nav-logo">
+    <div class="nav-logo-icon"><i data-lucide="sparkles" style="width:15px;height:15px;color:white;stroke-width:2.5;"></i></div>
+    <span class="nav-logo-text">Semantica</span>
+  </div>
+  <div class="nav-tabs">
+    <div id="tab-indicator"></div>
+    <button class="nav-tab active" data-target="list-view"><i data-lucide="library" class="nav-tab-icon"></i> My Vocabulary</button>
+    <button class="nav-tab" data-target="review-view"><i data-lucide="flip-horizontal" class="nav-tab-icon"></i> Review</button>
+    <button class="nav-tab" data-target="practice-view"><i data-lucide="pen-line" class="nav-tab-icon"></i> Practice</button>
+    <button class="nav-tab" data-target="game-view"><i data-lucide="gamepad-2" class="nav-tab-icon"></i> Game</button>
+    <button class="nav-tab" data-target="sentences-view"><i data-lucide="align-left" class="nav-tab-icon"></i> Sentences</button>
+    <button class="nav-tab" data-target="account-settings-view" id="account-nav-tab"><i data-lucide="settings" class="nav-tab-icon"></i> Account &amp; Settings</button>
+  </div>
+  <button class="nav-dark-toggle" id="nav-dark-toggle" title="Toggle dark mode">🌙</button>
+</nav>
+
+<main id="main-scroll">
+
+  <!-- LIST VIEW -->
+  <div id="list-view" class="view-section active">
+    <div class="card">
+
+      <!-- Search bar -->
+      <div id="vocab-search-bar" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+        <div style="flex:1;position:relative;">
+          <i data-lucide="search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--text-muted);pointer-events:none;stroke-width:2;"></i>
+          <input id="vocab-search-input" type="text" placeholder="Search or define a word…" autocomplete="off" spellcheck="false"
+            style="width:100%;padding:9px 12px 9px 36px;border:1px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;background:var(--bg);color:var(--text);outline:none;transition:border-color 0.15s;box-sizing:border-box;" />
+        </div>
+        <button id="vocab-search-clear" title="Clear search" style="display:none;background:none;border:none;cursor:pointer;color:var(--text-muted);padding:6px;border-radius:8px;transition:background 0.12s;">
+          <i data-lucide="x" style="width:14px;height:14px;display:block;stroke-width:2;"></i>
+        </button>
+      </div>
+
+      <!-- "Define new word" prompt (shown when search term not found in vocab) -->
+      <div id="search-define-prompt" style="display:none;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:10px;margin-bottom:14px;gap:12px;">
+        <span id="search-define-label" style="font-size:13px;color:var(--brand);font-weight:500;flex:1;"></span>
+        <button id="search-define-btn" class="btn-primary" style="font-size:12px;padding:6px 14px;flex-shrink:0;">Define this word →</button>
+      </div>
+
+      <!-- Tag cloud strip -->
+      <div id="tag-cloud" style="display:none; margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:8px;">Filter by tag</div>
+        <div id="tag-cloud-chips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+
+      <!-- Active filter bar (shown when tags are selected) -->
+      <div id="tag-filter-bar" style="display:none; align-items:center; gap:10px; margin-bottom:12px; padding:8px 12px; background:var(--brand-soft); border:1px solid var(--brand-border); border-radius:10px;">
+        <span id="tag-filter-label" style="font-size:12px;color:var(--brand);font-weight:600;flex:1;"></span>
+        <button id="tag-review-btn" class="btn-primary" style="font-size:12px;padding:5px 14px;">▶ Review these words</button>
+        <button id="tag-clear-btn" class="btn-ghost" style="font-size:12px;padding:5px 10px;">✕ Clear</button>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th class="word-col">Word</th>
+            <th class="context-col">Context &amp; Meaning</th>
+            <th class="tags-col">Tags</th>
+            <th class="actions-col">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="word-table-body"></tbody>
+      </table>
+
+      <div id="empty-state" style="text-align:center; padding:40px; color:var(--text-soft); display:none;">
+        No words saved yet. Save words to see them here.
+      </div>
+
+      <!-- Go to top -->
+      <div id="go-to-top-row" style="display:none;text-align:center;padding:24px 0 8px;">
+        <button id="go-to-top-btn" style="display:inline-flex;align-items:center;gap:6px;padding:7px 18px;border-radius:999px;font-size:12px;font-weight:600;color:var(--text-muted);background:none;border:1px solid var(--border);cursor:pointer;font-family:inherit;transition:all 0.15s;">
+          ↑ Back to top
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SENTENCES VIEW -->
+  <div id="sentences-view" class="view-section">
+    <div class="card">
+      <div id="sentences-list"></div>
+    </div>
+  </div>
+
+  <!-- VIDEOS VIEW -->
+  <div id="videos-view" class="view-section">
+    <div class="card">
+      <div id="videos-list"></div>
+    </div>
+  </div>
+
+  <!-- REVIEW VIEW -->
+  <div id="review-view" class="view-section">
+    <div id="srs-strip"></div>
+    <div class="flashcard-container" id="review-container">
+      <div id="no-review" style="text-align:center; color:var(--text-muted);">
+        <h2>All caught up!</h2>
+        <p>No words pending review right now.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS VIEW -->
+  <!-- placeholder removed — settings merged into account-settings-view below -->
+
+  <!-- PRACTICE VIEW (Fill-in-the-Blank) -->
+  <div id="practice-view" class="view-section">
+    <div class="flashcard-container" id="practice-container"></div>
+  </div>
+
+  <!-- GAME VIEW -->
+  <div id="game-view" class="view-section">
+
+    <!-- Screen: Main Menu -->
+    <div id="screen-menu" class="game-screen active">
+      <div class="card game-menu-card">
+        <h2>Vocabulary Game</h2>
+        <div id="menu-profile"></div>
+        <div class="menu-actions">
+          <button class="btn-primary" id="btn-play">&#9654; Play</button>
+          <button class="btn-ghost" id="btn-review"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px;"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="m8 13 4-7 4 7"/><path d="M9.1 11h5.7"/></svg>Review Words</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen: Mode Selection -->
+    <div id="screen-mode" class="game-screen">
+      <div class="card" style="max-width:600px;margin:0 auto;">
+        <h2 style="margin-top:0">Choose a Mode</h2>
+        <div class="mode-grid">
+          <div class="mode-card selected" data-mode="race">
+            <div class="mode-icon">&#127937;</div>
+            <div class="mode-name">Race</div>
+            <div class="mode-desc">Race through a set of words. Keep the bar alive to win!</div>
+          </div>
+          <div class="mode-card" data-mode="survival">
+            <div class="mode-icon">&#9201;&#65039;</div>
+            <div class="mode-name">Survival</div>
+            <div class="mode-desc">60s timer. Correct +5s, Wrong -10s, Skip -5s</div>
+          </div>
+          <div class="mode-card" data-mode="mission">
+            <div class="mode-icon">&#127919;</div>
+            <div class="mode-name">Mission</div>
+            <div class="mode-desc">Complete 3 objectives to win</div>
+          </div>
+        </div>
+        <!-- Race word-count picker (hidden for other modes) -->
+        <div id="race-word-count-wrap" style="margin-top:20px;display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:12px;">
+          <span style="font-size:13px;font-weight:600;color:var(--text-main);">🏁 Words to race through:</span>
+          <select id="race-word-count" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-main);font-size:13px;font-family:inherit;cursor:pointer;">
+            <option value="5">5 words</option>
+            <option value="10" selected>10 words</option>
+            <option value="20">20 words</option>
+            <option value="all">All words</option>
+          </select>
+        </div>
+        <button class="btn-primary" id="btn-start-game" style="margin-top:16px;width:100%;padding:14px;">Start Game</button>
+      </div>
+    </div>
+
+    <!-- Screen: Gameplay -->
+    <div id="screen-play" class="game-screen">
+      <div class="card game-play-card">
+        <div class="mode-status-bar">
+          <span id="mode-status"></span>
+          <div class="race-bar-wrap"><div id="race-bar" style="width:50%"></div></div>
+          <div id="mission-objectives"></div>
+        </div>
+        <div class="game-definition-box">
+          <div class="game-def-label">Type the word for this definition:</div>
+          <div id="game-definition" class="game-definition-text"></div>
+        </div>
+        <div id="hint-area" class="hint-area"></div>
+        <input type="text" id="answer-input" class="game-input" placeholder="Type your answer and press Enter…" autocomplete="off" spellcheck="false" />
+        <div id="feedback-area" class="feedback-area"></div>
+        <div class="game-actions">
+          <button class="btn-ghost" id="btn-hint"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px;"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Hint</button>
+          <button class="btn-ghost" id="btn-skip">&#9197; Skip</button>
+          <button class="btn-icon" id="btn-quit-game" title="Quit" style="color:var(--danger)">&#10005; Quit</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen: Results -->
+    <div id="screen-results" class="game-screen">
+      <div class="card" style="max-width:500px;margin:0 auto;text-align:center;">
+        <h2 style="margin-top:0">Session Complete! &#127881;</h2>
+        <div id="results-content"></div>
+        <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;">
+          <button class="btn-primary" id="btn-play-again">Play Again</button>
+          <button class="btn-ghost" id="btn-back-menu">Menu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen: Word Review -->
+    <div id="screen-review" class="game-screen">
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <h2 style="margin:0">Words to Review</h2>
+          <button class="btn-ghost" id="btn-back-menu-review">&#8592; Back</button>
+        </div>
+
+        <!-- Filter by tag (styled to match the My Vocabulary tag cloud) -->
+        <div id="review-tag-filter" style="display:none; margin-bottom:16px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:8px;">Filter by tag</div>
+          <div id="review-tag-filter-chips" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
+
+        <div id="review-list"></div>
+      </div>
+    </div>
+
+  </div><!-- /game-view -->
+
+  <!-- ACCOUNT & SETTINGS VIEW (merged) -->
+  <div id="account-settings-view" class="view-section">
+    <div class="acct-grid">
+    <div class="acct-col-left">
+
+      <!-- ── Account card ── -->
+      <div class="card" style="margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+          <div style="width:28px;height:28px;border-radius:8px;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;"><i data-lucide="user" style="width:13px;height:13px;color:var(--brand);stroke-width:2.5;"></i></div>
+          <span style="font-weight:700;font-size:14px;">Account</span>
+        </div>
+
+        <!-- Logged out -->
+        <div id="acct-logged-out">
+          <p style="color:var(--text-muted);font-size:13px;margin:0 0 16px;">Sign in to sync your vocabulary across devices and unlock Cloud AI definitions.</p>
+          <div class="form-group">
+            <label>Email address</label>
+            <input type="email" id="acct-email" placeholder="you@example.com" autocomplete="email" />
+          </div>
+          <button class="btn-primary" id="acct-send-code" style="width:100%;padding:11px;">Send Code</button>
+          <div id="acct-send-error" style="color:var(--danger);font-size:12px;margin-top:8px;display:none;"></div>
+        </div>
+
+        <!-- Code sent -->
+        <div id="acct-code-sent" style="display:none;">
+          <p style="color:var(--text-muted);font-size:13px;margin:0 0 16px;">Enter the 6-digit code sent to <strong id="acct-email-display"></strong></p>
+          <div class="form-group">
+            <input type="text" id="acct-code" placeholder="000000" maxlength="6" inputmode="numeric" autocomplete="one-time-code" style="letter-spacing:0.3em;font-size:22px;font-weight:700;text-align:center;" />
+          </div>
+          <button class="btn-primary" id="acct-verify-code" style="width:100%;padding:11px;">Verify &amp; Sign In</button>
+          <div id="acct-verify-error" style="color:var(--danger);font-size:12px;margin-top:8px;display:none;"></div>
+          <p style="text-align:center;margin-top:14px;font-size:12px;color:var(--text-soft);">
+            Didn't get it? <button id="acct-resend" style="background:none;border:none;color:var(--brand);cursor:pointer;font-size:12px;padding:0;font-family:inherit;">Resend code</button>
+          </p>
+        </div>
+
+        <!-- Logged in -->
+        <div id="acct-logged-in" style="display:none;">
+          <div style="display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;background:var(--muted-bg);margin-bottom:16px;">
+            <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--brand),var(--brand-2));display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:16px;flex-shrink:0;" id="acct-avatar">?</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="acct-email-logged"></div>
+              <div id="acct-status-badge" style="font-size:11px;margin-top:2px;color:var(--success);"></div>
+            </div>
+          </div>
+          <div style="background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:10px;padding:12px;margin-bottom:14px;">
+            <div style="font-size:12px;font-weight:600;color:var(--brand);margin-bottom:3px;">☁️ Cloud AI Active</div>
+            <div style="font-size:11px;color:var(--text-muted);">Vocabulary syncs across devices. Powered by Claude + DeepL.</div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--muted-bg);border-radius:10px;margin-bottom:14px;">
+            <div>
+              <div style="font-size:12px;font-weight:600;margin-bottom:2px;">Sync status</div>
+              <div id="acct-sync-status" style="font-size:11px;color:var(--text-muted);">Syncing…</div>
+            </div>
+            <button id="acct-sync-now" class="btn-ghost" style="font-size:12px;padding:6px 12px;">↺ Sync now</button>
+          </div>
+          <!-- ── Export / Import vocabulary ── -->
+          <div style="padding:10px 12px;background:var(--muted-bg);border-radius:10px;margin-bottom:14px;">
+            <div style="font-size:12px;font-weight:600;margin-bottom:2px;">Your data</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">Export your vocabulary as a file, or import a list shared by another Semantica user.</div>
+            <div style="display:flex;gap:8px;">
+              <button id="acct-export-btn" class="btn-ghost" style="flex:1;font-size:12px;padding:7px 10px;">⬇ Export JSON</button>
+              <button id="acct-import-btn" class="btn-ghost" style="flex:1;font-size:12px;padding:7px 10px;">⬆ Import JSON</button>
+            </div>
+            <input type="file" id="acct-import-file" accept=".json,application/json" style="display:none;" />
+            <div id="acct-data-status" style="display:none;font-size:11px;margin-top:8px;"></div>
+          </div>
+          <button id="acct-logout" class="btn-danger" style="width:100%;padding:10px;">Sign out</button>
+        </div>
+      </div>
+
+      <!-- ── Settings card ── -->
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+          <div style="width:28px;height:28px;border-radius:8px;background:var(--muted-bg);display:flex;align-items:center;justify-content:center;"><i data-lucide="settings" style="width:13px;height:13px;color:var(--text-muted);stroke-width:2;"></i></div>
+          <span style="font-weight:700;font-size:14px;">Settings</span>
+        </div>
+
+        <div class="form-group">
+          <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Definition Source</label>
+          <select id="ai-provider">
+            <option value="cloud">☁️ Cloud AI — Claude + DeepL (subscription)</option>
+            <option value="freedict">Free Dictionary (no account needed)</option>
+          </select>
+          <div class="api-note" id="provider-note-free" style="margin-top:6px;display:none;">Free English dictionary + unofficial Google Translate. No account needed.</div>
+        </div>
+
+        <div class="form-group">
+          <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">
+            Accent Color <span id="hue-preview" style="display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:middle;margin-left:4px;"></span>
+          </label>
+          <input type="range" id="accent-hue" min="0" max="360" value="190" />
+        </div>
+
+        <div class="form-group">
+          <div class="toggle-row">
+            <label style="margin:0;font-size:14px;">Dark Mode</label>
+            <label class="toggle-switch">
+              <input type="checkbox" id="dark-mode-toggle" />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+        </div>
+
+        <button id="save-settings" class="btn-primary" style="width:100%;padding:11px;margin-top:4px;">Save Settings</button>
+        <span id="save-msg" style="display:block;text-align:center;margin-top:8px;font-size:12px;color:var(--success);opacity:0;transition:opacity 0.3s;">Saved!</span>
+      </div>
+
+      </div><!-- /acct-col-left -->
+
+      <!-- ── How to use card (right column) ── -->
+      <div class="card howto-card">
+        <div class="howto-head">
+          <div class="howto-head-icon"><i data-lucide="sparkles" style="width:15px;height:15px;color:#fff;stroke-width:2.5;"></i></div>
+          <div>
+            <div style="font-weight:700;font-size:15px;">How to use Semantica<span class="howto-title-vi">/ Cách sử dụng Semantica</span></div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Six steps to a stronger vocabulary<span class="howto-subtitle-vi">/ Sáu bước để xây dựng vốn từ vựng vững chắc hơn</span></div>
+          </div>
+        </div>
+        <div class="howto-steps">
+          <div class="howto-line"></div>
+          <div class="howto-step">
+            <div class="howto-dot" style="background:rgba(6,182,212,0.14);color:#0891b2;"><i data-lucide="search" style="width:14px;height:14px;stroke-width:2.5;"></i></div>
+            <div style="flex:1;">
+              <span class="howto-num">01</span><span class="howto-title">Look it up — anywhere</span><span class="howto-title-vi">/ Tra cứu từ — ở mọi nơi</span>
+              <div class="howto-body"><span id="howto-lookup">Press the quick-search shortcut</span>, type a word, hit Enter. Already saved? It opens instantly with a ✓.</div>
+              <div class="howto-body-vi">Nhấn <strong>⌘+Shift+D</strong>/<strong>Ctrl+Shift+D</strong> (hoặc click vào biểu tượng Semantica ở thanh hệ thống), nhập một từ bất kỳ và nhấn Enter. Từ này đã được lưu từ trước? Nó sẽ hiển thị ngay lập tức kèm theo dấu tích ✓.</div>
+            </div>
+          </div>
+          <div class="howto-step">
+            <div class="howto-dot" style="background:rgba(124,58,237,0.12);color:#7c3aed;"><i data-lucide="sparkles" style="width:14px;height:14px;stroke-width:2.5;"></i></div>
+            <div style="flex:1;">
+              <span class="howto-num">02</span><span class="howto-title">Definitions, instantly</span><span class="howto-title-vi">/ Định nghĩa xuất hiện ngay tức thì</span>
+              <div class="howto-body">The English meaning appears in a blink — the <strong>Vietnamese translation</strong> and audio follow right behind.</div>
+              <div class="howto-body-vi">Nghĩa tiếng Anh của từ sẽ xuất hiện trong nháy mắt — bản dịch tiếng Việt và phát âm âm thanh sẽ nối tiếp ngay sau đó.</div>
+            </div>
+          </div>
+          <div class="howto-step">
+            <div class="howto-dot" style="background:rgba(14,165,233,0.12);color:#0284c7;"><i data-lucide="flip-horizontal" style="width:14px;height:14px;stroke-width:2.5;"></i></div>
+            <div style="flex:1;">
+              <span class="howto-num">03</span><span class="howto-title">Flip the flashcards</span><span class="howto-title-vi">/ Lật thẻ ghi nhớ (Flashcards)</span>
+              <div class="howto-body"><em>Review</em> uses spaced repetition — rate each card and Semantica picks the perfect moment to show it again.</div>
+              <div class="howto-body-vi">Tính năng "Review" (Ôn tập) sử dụng phương pháp lặp lại ngắt quãng (spaced repetition) — bạn chỉ cần đánh giá độ thuộc của từng thẻ, Semantica sẽ tự động chọn thời điểm hoàn hảo nhất để hiển thị lại thẻ đó.</div>
+            </div>
+          </div>
+          <div class="howto-step">
+            <div class="howto-dot" style="background:rgba(245,158,11,0.14);color:#b45309;"><i data-lucide="gamepad-2" style="width:14px;height:14px;stroke-width:2.5;"></i></div>
+            <div style="flex:1;">
+              <span class="howto-num">04</span><span class="howto-title">Play to make it stick</span><span class="howto-title-vi">/ Học mà chơi, chơi mà học</span>
+              <div class="howto-body">Race the clock, survive the timer, or complete <strong>Missions</strong>. Earn XP, build streaks, unlock achievements.</div>
+              <div class="howto-body-vi">Chạy đua với thời gian, sinh tồn trước khi hết giờ, hoặc hoàn thành các Nhiệm vụ (Missions). Tích lũy điểm kinh nghiệm (XP), duy trì chuỗi học tập (streaks) và mở khóa các thành tựu mới.</div>
+            </div>
+          </div>
+          <div class="howto-step">
+            <div class="howto-dot" style="background:rgba(16,185,129,0.12);color:#059669;"><i data-lucide="align-left" style="width:14px;height:14px;stroke-width:2.5;"></i></div>
+            <div style="flex:1;">
+              <span class="howto-num">05</span><span class="howto-title">See it in real sentences</span><span class="howto-title-vi">/ Xem từ trong câu thực tế</span>
+              <div class="howto-body">The <em>Sentences</em> tab shows every word living inside an example — context is what makes it stick.</div>
+              <div class="howto-body-vi">Tab "Sentences" (Mẫu câu) sẽ hiển thị mọi từ vựng lồng ghép trong một ví dụ cụ thể — vì ngữ cảnh chính là chìa khóa giúp bạn ghi nhớ từ lâu hơn.</div>
+            </div>
+          </div>
+          <div class="howto-step">
+            <div class="howto-dot" style="background:rgba(244,63,94,0.12);color:#e11d48;"><i data-lucide="share-2" style="width:14px;height:14px;stroke-width:2.5;"></i></div>
+            <div style="flex:1;">
+              <span class="howto-num">06</span><span class="howto-title">Share your list</span><span class="howto-title-vi">/ Chia sẻ danh sách của bạn</span>
+              <div class="howto-body">Export your vocabulary as a file, import lists from friends — their words arrive <strong>fully defined</strong>, zero waiting.</div>
+              <div class="howto-body-vi">Xuất kho từ vựng của bạn thành một file tài liệu hoặc nhập danh sách từ bạn bè — các từ vựng sẽ hiển thị đầy đủ định nghĩa ngay lập tức mà không cần chờ đợi.</div>
+            </div>
+          </div>
+        </div>
+        <div class="howto-tip" id="howto-background" style="display:none;">
+          <div class="howto-tip-i">i</div>
+          <div>
+            <div><strong>Semantica lives in your tray.</strong> Closing this window keeps it running in the background — click the tray icon anytime to look up a word, or reopen the dashboard from the tray menu.</div>
+            <div class="howto-tip-vi">Semantica hoạt động ẩn trên khay hệ thống (tray icon). Khi bạn tắt cửa sổ này, ứng dụng vẫn sẽ tiếp tục chạy ngầm — click vào biểu tượng ứng dụng ở khay hệ thống bất cứ lúc nào để tra từ, hoặc mở lại bảng điều khiển chính (dashboard) từ menu khay hệ thống.</div>
+          </div>
+        </div>
+        <div class="howto-tip">
+          <div class="howto-tip-i">i</div>
+          <div>
+            <div><strong>Pro tip:</strong> filter My Vocabulary by IELTS band or topic, then hit <em>Review these words</em> to drill exactly what you need.</div>
+            <div class="howto-tip-vi">Mẹo nhỏ: Hãy lọc danh sách từ vựng "My Vocabulary" theo band điểm IELTS hoặc theo chủ đề, sau đó nhấn "Review these words" để luyện tập chuẩn xác những gì bạn đang cần.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /account-settings-view -->
+
+</main>
+
+  <!-- ── Word lookup modal (search → define new word) ── -->
+  <div id="word-lookup-modal" style="display:none;position:fixed;inset:0;z-index:8000;background:rgba(0,0,0,0.55);align-items:center;justify-content:center;padding:20px;">
+    <div id="word-lookup-card" style="width:100%;max-width:480px;max-height:82vh;overflow-y:auto;border-radius:20px;background:var(--card-bg,#ffffff);border:1px solid var(--border);box-shadow:0 32px 80px rgba(0,0,0,0.28);padding:24px;position:relative;">
+
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--brand),var(--brand-2));display:flex;align-items:center;justify-content:center;"><i data-lucide="search" style="width:13px;height:13px;color:white;stroke-width:2.5;"></i></div>
+          <span id="lookup-modal-title" style="font-weight:700;font-size:15px;">Word Lookup</span>
+        </div>
+        <button id="word-lookup-close" style="background:none;border:none;cursor:pointer;padding:6px;border-radius:8px;color:var(--text-muted);">
+          <i data-lucide="x" style="width:16px;height:16px;stroke-width:2;display:block;"></i>
+        </button>
+      </div>
+
+      <!-- Content area — spinner → result -->
+      <div id="word-lookup-body">
+        <div id="word-lookup-loading" style="text-align:center;padding:40px 0;">
+          <div style="width:32px;height:32px;border:3px solid var(--brand-border);border-top-color:var(--brand);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px;"></div>
+          <div style="font-size:13px;color:var(--text-muted);">Analysing word…</div>
+        </div>
+        <div id="word-lookup-result" style="display:none;"></div>
+        <div id="word-lookup-error" style="display:none;color:var(--danger);font-size:13px;padding:12px 0;"></div>
+      </div>
+
+      <!-- Footer: save to vocab -->
+      <div id="word-lookup-footer" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);gap:10px;justify-content:flex-end;">
+        <button id="word-lookup-cancel" class="btn-ghost" style="font-size:13px;padding:8px 16px;">Close</button>
+        <button id="word-lookup-save" class="btn-primary" style="font-size:13px;padding:8px 16px;display:flex;align-items:center;gap:6px;">
+          <i data-lucide="plus" style="width:13px;height:13px;stroke-width:2.5;"></i> Save to My Vocabulary
+        </button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+</div><!-- /#main-app -->
+
+<script src="./tauri-bridge.js"></script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

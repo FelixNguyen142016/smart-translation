@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Semantica</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    /* ── CSS variables — light mode defaults ── */
+    :root {
+      --brand:        #06b6d4;
+      --brand-2:      #38bdf8;
+      --brand-deep:   #0891b2;
+      --brand-soft:   rgba(6,182,212,0.08);
+      --brand-border: rgba(6,182,212,0.20);
+
+      --popup-bg:        #ffffff;
+      --popup-border:    rgba(0,0,0,0.08);
+      --header-bg:       rgba(6,182,212,0.06);
+      --header-border:   rgba(6,182,212,0.14);
+      --footer-bg:       rgba(6,182,212,0.04);
+      --footer-border:   rgba(6,182,212,0.12);
+
+      --text-main:   #0f172a;
+      --text-body:   #1e293b;
+      --text-muted:  #64748b;
+      --text-subtle: #94a3b8;
+      --divider:     rgba(226,232,240,0.8);
+
+      --shimmer-a:   #e2e8f0;
+      --shimmer-b:   #f1f5f9;
+    }
+
+    /* ── Dark mode overrides ── */
+    html.dark {
+      --popup-bg:        #1e293b;
+      --popup-border:    rgba(255,255,255,0.08);
+      --header-bg:       rgba(6,182,212,0.08);
+      --header-border:   rgba(6,182,212,0.15);
+      --footer-bg:       rgba(6,182,212,0.05);
+      --footer-border:   rgba(6,182,212,0.12);
+
+      --text-main:   #f1f5f9;
+      --text-body:   #e2e8f0;
+      --text-muted:  #94a3b8;
+      --text-subtle: #64748b;
+      --divider:     rgba(255,255,255,0.08);
+
+      --shimmer-a:   rgba(255,255,255,0.06);
+      --shimmer-b:   rgba(255,255,255,0.10);
+    }
+
+    body {
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .popup {
+      width: 360px;
+      max-height: 500px;
+      background: var(--popup-bg);
+      border: 1px solid var(--popup-border);
+      border-radius: 18px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      animation: slideIn 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes slideIn {
+      from { transform: scale(0.92) translateY(6px); opacity: 0; }
+      to   { transform: scale(1) translateY(0); opacity: 1; }
+    }
+
+    .header {
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--header-border);
+      padding: 11px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header-label {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--brand);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .close-btn {
+      background: var(--brand-soft);
+      border: none;
+      color: var(--brand);
+      font-size: 15px;
+      cursor: pointer;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      transition: background 0.15s;
+    }
+    .close-btn:hover { background: var(--brand-border); }
+
+    .content {
+      padding: 14px 16px 16px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    /* ── Loading shimmer ── */
+    .shimmer {
+      height: 12px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, var(--shimmer-a) 25%, var(--shimmer-b) 50%, var(--shimmer-a) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+      margin-bottom: 8px;
+    }
+    @keyframes shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ── Staggered "wave" reveal for a freshly-loaded result (translate popup
+       only — see renderResult() in popup.js; WOTD is untouched). Each block
+       gets an inline animation-delay so they cascade in top to bottom instead
+       of popping in as one flat block once the network response lands. */
+    .reveal-item {
+      opacity: 0;
+      animation: waveIn 0.34s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+    @keyframes waveIn {
+      from { opacity: 0; transform: translateY(7px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Word header ── */
+    .word-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 3px;
+    }
+
+    .word {
+      font-size: 22px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.3px;
+      line-height: 1.2;
+    }
+
+    .pos {
+      display: inline-block;
+      background: var(--brand-soft);
+      border: 1px solid var(--brand-border);
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--brand-deep);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-top: 5px;
+    }
+
+    .phonetic {
+      color: var(--text-subtle);
+      font-family: monospace;
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+
+    .divider {
+      border: none;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--brand-border), transparent);
+      margin: 8px 0 10px;
+    }
+
+    /* ── Translation (primary) ── */
+    .translation {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--brand);
+      font-weight: 700;
+      font-size: 15px;
+      margin-bottom: 7px;
+    }
+    .translation-icon { font-size: 12px; opacity: 0.75; }
+
+    /* ── Native definition (main) ── */
+    .definition-native {
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--text-body);
+      white-space: pre-line;
+      margin-bottom: 9px;
+    }
+
+    /* ── English definition (secondary) ── */
+    .en-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-subtle);
+      margin-bottom: 3px;
+    }
+    .definition {
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--text-muted);
+      white-space: pre-line;
+      margin-bottom: 9px;
+    }
+
+    /* ── Example ── */
+    .example-block {
+      padding-top: 8px;
+      border-top: 1px solid var(--divider);
+      margin-bottom: 10px;
+    }
+    .example {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-style: italic;
+      line-height: 1.5;
+      margin-bottom: 3px;
+    }
+    .example-translated {
+      font-size: 11.5px;
+      color: var(--text-subtle);
+      line-height: 1.5;
+    }
+
+    /* ── Error state ── */
+    .error-text { color: #dc2626; font-size: 13px; }
+
+    /* ── Footer (save button) ── */
+    .footer {
+      border-top: 1px solid var(--footer-border);
+      background: var(--footer-bg);
+      padding: 9px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+    }
+
+    .save-btn {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: white;
+      border: none;
+      padding: 5px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .save-btn:hover { opacity: 0.85; }
+    .save-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .footer-status {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+    .footer-status.saved   { color: #16a34a; }
+    .footer-status.error   { color: #dc2626; }
+    .footer-status.already { color: var(--brand-deep); }
+
+    /* ── Word of the Day mode ── */
+    body.wotd .header { display:none !important; }
+    body.wotd .footer { display:none !important; }
+    body.wotd .content { padding:0 !important; }
+    .wotd-hero { position:relative; padding:24px 24px 22px; background:linear-gradient(135deg,#0c1220 0%,#0e2a3a 55%,#0a1f2e 100%); overflow:hidden; }
+    .wotd-orb1 { position:absolute; top:-40px; right:-40px; width:160px; height:160px; border-radius:50%; opacity:0.2; background:radial-gradient(circle,#06b6d4,transparent 70%); }
+    .wotd-orb2 { position:absolute; bottom:-32px; left:-32px; width:128px; height:128px; border-radius:50%; opacity:0.15; background:radial-gradient(circle,#38bdf8,transparent 70%); }
+    .wotd-dot { position:absolute; width:4px; height:4px; border-radius:50%; background:rgba(34,211,238,0.4); }
+    .wotd-topbar { position:relative; display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+    .wotd-badge { display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border-radius:999px; border:1px solid rgba(6,182,212,0.4); background:rgba(6,182,212,0.1); font-size:10px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:#22d3ee; }
+    .wotd-close { width:26px; height:26px; border-radius:50%; background:rgba(255,255,255,0.1); border:none; color:rgba(255,255,255,0.6); font-size:15px; line-height:1; cursor:pointer; }
+    .wotd-close:hover { background:rgba(255,255,255,0.2); color:#fff; }
+    .wotd-date { position:relative; font-size:11px; color:rgba(103,232,249,0.6); font-weight:600; letter-spacing:0.14em; text-transform:uppercase; margin-bottom:10px; }
+    .wotd-wordrow { position:relative; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .wotd-word { font-size:34px; font-weight:800; line-height:1; background:linear-gradient(90deg,#67e8f9,#38bdf8,#818cf8); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .wotd-pos { margin-top:4px; padding:4px 10px; border-radius:8px; font-size:10px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; border:1px solid rgba(56,189,248,0.3); background:rgba(56,189,248,0.1); color:#7dd3fc; flex-shrink:0; }
+    .wotd-phon { position:relative; font-family:monospace; font-size:13px; color:#94a3b8; margin-top:8px; }
+    .wotd-trans { position:relative; display:flex; align-items:center; gap:8px; margin-top:14px; font-size:16px; font-weight:700; color:#22d3ee; }
+    .wotd-trans::before { content:''; width:16px; height:1px; background:rgba(6,182,212,0.5); flex-shrink:0; }
+    .wotd-body { padding:18px 24px; background:var(--popup-bg); display:flex; flex-direction:column; gap:14px; }
+    .wotd-nativedef { font-size:13.5px; line-height:1.6; color:var(--text-body); }
+    .wotd-en-label { font-size:9px; font-weight:800; letter-spacing:0.18em; text-transform:uppercase; color:var(--text-subtle); margin-bottom:8px; }
+    .wotd-def { display:flex; gap:10px; font-size:13px; line-height:1.55; color:var(--text-muted); margin-bottom:6px; }
+    .wotd-defnum { flex-shrink:0; width:16px; height:16px; border-radius:50%; background:var(--brand-soft); color:var(--brand-deep); font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-top:2px; }
+    .wotd-divider { height:1px; background:var(--divider); }
+    .wotd-ex { font-size:12px; font-style:italic; line-height:1.6; color:var(--text-muted); }
+    .wotd-ex-trans { font-size:12px; line-height:1.6; color:var(--text-subtle); margin-top:2px; }
+    .wotd-actions { display:flex; align-items:center; justify-content:space-between; padding-top:2px; }
+    .wotd-dismiss { background:none; border:none; font-size:12px; color:var(--text-subtle); cursor:pointer; font-family:inherit; }
+    .wotd-dismiss:hover { color:var(--text-muted); }
+    .wotd-saved-chip { display:inline-flex; align-items:center; gap:6px; padding:9px 16px; border-radius:12px; font-size:12px; font-weight:700; color:#fff; background:linear-gradient(135deg,#06b6d4,#38bdf8); box-shadow:0 4px 14px rgba(6,182,212,0.35); border:none; }
+  </style>
+</head>
+<body>
+  <div class="popup" id="popup">
+    <div class="header" data-tauri-drag-region>
+      <span class="header-label">Semantica</span>
+      <div class="header-actions">
+        <button class="close-btn" id="close-btn">&times;</button>
+      </div>
+    </div>
+    <div class="content" id="content">
+      <!-- Loading shimmer shown initially -->
+      <div class="shimmer" style="width:45%;height:22px;margin-bottom:6px;"></div>
+      <div class="shimmer" style="width:30%;height:10px;margin-bottom:14px;"></div>
+      <div class="shimmer" style="width:55%;height:14px;margin-bottom:8px;"></div>
+      <div class="shimmer" style="width:95%;"></div>
+      <div class="shimmer" style="width:80%;"></div>
+      <div class="shimmer" style="width:70%;margin-bottom:4px;"></div>
+    </div>
+    <div class="footer" id="footer" style="display:none;"></div>
+  </div>
+  <script src="./tauri-bridge.js"></script>
+  <script src="./popup.js"></script>
+</body>
+</html>

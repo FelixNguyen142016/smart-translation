@@ -10,6 +10,7 @@ import { escapeHtml } from './dom-utils.js';
 import {
   loadVocab,
   apiAnalyzeText,
+  apiImportWords,
   apiRequestCode,
   apiVerifyCode,
   setAuthSession,
@@ -18,6 +19,7 @@ import {
   getToken,
   getEmail,
 } from './api.js';
+import { loadLocalDictionary, lookupLocalDef } from './local-dictionary.js';
 
 // ─── IELTS Wordlist ──────────────────────────────────────────────────────────
 let _ieltsWordlist = null;
@@ -118,6 +120,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     showMainApp();
   } else {
     showLoginPage();
+    // Tauri starts the window hidden (background app) — bring it up so the
+    // user can sign in. No-op on Electron, where the window is always shown.
+    window.electronAPI?.showDashboard?.();
+  }
+
+  // ─── "How to use" card: platform-aware shortcut labels ───────────────────────
+  {
+    const isTauri = !!window.__TAURI__;
+    const mod = window.electronAPI?.platform === 'darwin' ? '⌘' : 'Ctrl';
+    const lookupEl = document.getElementById('howto-lookup');
+    if (lookupEl) {
+      lookupEl.innerHTML = isTauri
+        ? `Press <strong>${mod}+Shift+D</strong> (or click the Semantica tray icon)`
+        : `Press <strong>${mod}+Shift+F</strong> — or copy a word and press <strong>${mod}+Shift+T</strong>`;
+    }
+    const bgEl = document.getElementById('howto-background');
+    if (bgEl && isTauri) bgEl.style.display = 'block';
   }
 
 
@@ -205,7 +224,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const navRect = navTabs.getBoundingClientRect();
     const tabRect = tab.getBoundingClientRect();
     const padding = 14; // matches .nav-tab padding-left/right
-    tabIndicator.style.left  = (tabRect.left - navRect.left + padding) + 'px';
+    // Add scrollLeft: the indicator lives in the container's content coordinates,
+    // which shift when .nav-tabs (overflow-x: auto) is horizontally scrolled
+    tabIndicator.style.left  = (tabRect.left - navRect.left + navTabs.scrollLeft + padding) + 'px';
     tabIndicator.style.width = (tabRect.width - padding * 2) + 'px';
   }
 
@@ -271,7 +292,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ─── Settings ────────────────────────────────────────────────────────────────
   const aiProviderSelect  = document.getElementById('ai-provider');
-  const targetLangSelect  = document.getElementById('target-lang');
   const saveSettingsBtn   = document.getElementById('save-settings');
   const saveMsg           = document.getElementById('save-msg');
 
@@ -285,7 +305,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const loggedIn = isLoggedIn();
   const defaultProvider = loggedIn ? 'cloud' : 'freedict';
   aiProviderSelect.value = currentSettings.provider || defaultProvider;
-  targetLangSelect.value = currentSettings.targetLanguage || 'Spanish';
 
   // Accent hue slider
   const hueSlider  = document.getElementById('accent-hue');
@@ -327,14 +346,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   aiProviderSelect.addEventListener('change', () => toggleProviderNote(aiProviderSelect.value));
 
   function toggleProviderNote(provider) {
-    document.getElementById('provider-note-cloud').style.display = provider === 'cloud' ? 'block' : 'none';
-    document.getElementById('provider-note-free').style.display  = provider === 'freedict' ? 'block' : 'none';
+    // Notes are optional — the cloud note was removed from the settings UI
+    const cloudNote = document.getElementById('provider-note-cloud');
+    const freeNote  = document.getElementById('provider-note-free');
+    if (cloudNote) cloudNote.style.display = provider === 'cloud' ? 'block' : 'none';
+    if (freeNote)  freeNote.style.display  = provider === 'freedict' ? 'block' : 'none';
   }
 
   saveSettingsBtn.addEventListener('click', async () => {
     const newSettings = {
       provider: aiProviderSelect.value,
-      targetLanguage: targetLangSelect.value,
+      targetLanguage: 'Vietnamese', // fixed: Semantica is English → Vietnamese
       accentHue: parseInt(hueSlider.value, 10),
       darkMode: darkToggle.checked,
     };
@@ -344,8 +366,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => { saveMsg.style.opacity = 0; }, 2000);
   });
 
-  // ─── Load IELTS wordlist (runs in parallel, non-blocking) ───────────────────
+  // ─── Load IELTS wordlist + offline dictionary (parallel, non-blocking) ──────
   loadIeltsWordlist();
+  loadLocalDictionary();
 
   // ─── Load vocab from cloud on startup (only if logged in) ────────────────────
   // pushWordCache keeps the main-process word list in sync for the search bar
@@ -357,6 +380,28 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadVocab();
     pushWordCache();
   }
+
+  // ─── Word of the Day — one popup per day, on the first launch (boot) ─────────
+  (function maybeShowWordOfTheDay() {
+    // Dedicated WOTD layout at the tray corner (Tauri); harmless no-op elsewhere
+    const showFn = window.electronAPI?.showWordOfDay || window.electronAPI?.searchWord;
+    if (!showFn) return;
+    if (!isLoggedIn()) return;
+    const today = new Date().toISOString().slice(0, 10);
+    if (localStorage.getItem('wotd_last_shown') === today) return;
+
+    const words = getWords();
+    if (!words.length) return;
+    // Prefer words the user is still learning; fall back to any saved word
+    const pool = words.filter(w => ['new', 'learning', 'relearn'].includes(w.learningState || 'new'));
+    const from = pool.length ? pool : words;
+    const pick = from[Math.floor(Math.random() * from.length)];
+
+    localStorage.setItem('wotd_last_shown', today);
+    // Small delay so the word-cache push has landed in the backend state —
+    // the popup then renders instantly from savedData, no API call
+    setTimeout(() => showFn(pick.text), 1500);
+  })();
 
   // ─── Vocabulary List ─────────────────────────────────────────────────────────
   const tableBody    = document.getElementById('word-table-body');
@@ -970,6 +1015,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnEl.onclick = async () => {
       cancelBtn.remove();
       await deleteWord(text);
+      pushWordCache(); // keep main-process cache in sync so search bar drops the deleted word
       await renderWords();
     };
     cancelBtn.onclick = () => {
@@ -987,7 +1033,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     resultElement.innerHTML = '<span class="loading">Consulting...</span>';
     try {
       const settings = getSettings();
-      const targetLanguage = settings.targetLanguage || 'Spanish';
+      const targetLanguage = 'Vietnamese'; // fixed: English → Vietnamese
       const analysis = await apiAnalyzeText(word.text, word.context, targetLanguage);
       await updateWord(word.text, { aiAnalysis: analysis });
       renderDefinitionBlock(resultElement, word, analysis);
@@ -1295,6 +1341,54 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
 
+    // Instant first paint from the offline dictionary — shown while AI loads
+    function renderLookupLocal(wordText, senses) {
+      resultEl.innerHTML = '';
+      const wrap = document.createElement('div');
+      const first = senses[0];
+
+      const hdr = document.createElement('div');
+      hdr.style.cssText = 'display:flex;align-items:baseline;gap:10px;margin-bottom:4px;';
+      const wordTitle = document.createElement('div');
+      wordTitle.style.cssText = 'font-size:26px;font-weight:800;background:linear-gradient(135deg,var(--brand),var(--brand-2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;';
+      wordTitle.textContent = wordText;
+      const phonetic = document.createElement('div');
+      phonetic.style.cssText = 'font-size:12px;color:var(--text-muted);font-family:monospace;';
+      phonetic.textContent = first.phon || '';
+      hdr.appendChild(wordTitle);
+      hdr.appendChild(phonetic);
+      wrap.appendChild(hdr);
+
+      senses.slice(0, 2).forEach(sense => {
+        const card = document.createElement('div');
+        card.className = 'ai-card-bg';
+        card.style.cssText = 'padding:14px;margin-top:10px;';
+        const meta = document.createElement('div');
+        meta.style.cssText = 'font-size:10px;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;';
+        meta.textContent = [sense.pos, sense.cefr].filter(Boolean).join(' · ');
+        if (meta.textContent) card.appendChild(meta);
+        const def = document.createElement('div');
+        def.style.cssText = 'font-size:13px;color:var(--text);line-height:1.5;';
+        def.textContent = sense.def;
+        card.appendChild(def);
+        if (sense.ex) {
+          const ex = document.createElement('div');
+          ex.style.cssText = 'margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(6,182,212,0.06);font-size:12px;color:var(--text-muted);font-style:italic;line-height:1.5;';
+          ex.textContent = `"${sense.ex}"`;
+          card.appendChild(ex);
+        }
+        wrap.appendChild(card);
+      });
+
+      const pending = document.createElement('div');
+      pending.id = 'lookup-ai-pending';
+      pending.style.cssText = 'margin-top:10px;font-size:12px;color:var(--text-muted);';
+      pending.textContent = '✦ Fetching translation & AI analysis…';
+      wrap.appendChild(pending);
+
+      resultEl.appendChild(wrap);
+    }
+
     // Public: open and run analysis
     window._openLookupModal = async function(wordText) {
       _pendingWord     = wordText;
@@ -1314,9 +1408,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (window.lucide) window.lucide.createIcons({ nodes: [modal] });
 
+      // ── Instant first paint from the offline dictionary ──
+      const localSenses = lookupLocalDef(wordText, lookupIelts(wordText));
+      if (localSenses?.length) {
+        renderLookupLocal(wordText, localSenses);
+        loading.style.display  = 'none';
+        resultEl.style.display = 'block';
+      }
+
       try {
-        const settings        = getSettings();
-        const targetLanguage  = settings.targetLanguage || 'Spanish';
+        const targetLanguage  = 'Vietnamese'; // fixed: English → Vietnamese
         const analysis        = await apiAnalyzeText(wordText, '', targetLanguage);
         _pendingAnalysis      = analysis;
 
@@ -1409,6 +1510,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
       } catch (err) {
+        // If the offline dictionary already rendered, the word is valid —
+        // the failure is network/API. Keep the local result and let the user
+        // save it with a minimal analysis built from the local sense.
+        if (localSenses?.length) {
+          document.getElementById('lookup-ai-pending')?.remove();
+          const first = localSenses[0];
+          _pendingAnalysis = {
+            definition: first.def,
+            exampleSentence: first.ex || '',
+            partOfSpeech: first.pos || '',
+            pronunciation: first.phon || '',
+            source: 'local-dictionary',
+          };
+          const note = document.createElement('div');
+          note.style.cssText = 'margin-top:10px;font-size:11px;color:var(--text-muted);';
+          note.textContent = 'Translation unavailable right now — showing the offline dictionary entry.';
+          resultEl.firstChild?.appendChild(note);
+
+          footer.style.display = 'flex';
+          const alreadySaved = getWords().some(w => w.text.toLowerCase() === wordText.toLowerCase());
+          saveBtn.style.display = 'flex';
+          saveBtn.disabled = alreadySaved;
+          saveBtn.innerHTML = alreadySaved
+            ? '✓ Already in your vocabulary'
+            : '<i data-lucide="plus" style="width:13px;height:13px;stroke-width:2.5;"></i> Save to My Vocabulary';
+          if (window.lucide) window.lucide.createIcons({ nodes: [saveBtn] });
+          return;
+        }
+
         loading.style.display = 'none';
         errorEl.innerHTML     = '';
         errorEl.style.display = 'block';
@@ -1536,6 +1666,78 @@ document.addEventListener('DOMContentLoaded', async () => {
       updateSyncStatus('Last synced: just now');
     });
 
+    // ── Export / Import vocabulary ─────────────────────────────────────────
+    const dataStatus = document.getElementById('acct-data-status');
+    let _dataStatusTimer = null;
+    function showDataStatus(msg, isError = false) {
+      dataStatus.textContent = msg;
+      dataStatus.style.color = isError ? 'var(--danger)' : 'var(--success)';
+      dataStatus.style.display = 'block';
+      clearTimeout(_dataStatusTimer);
+      _dataStatusTimer = setTimeout(() => { dataStatus.style.display = 'none'; }, 6000);
+    }
+
+    document.getElementById('acct-export-btn').addEventListener('click', () => {
+      const words = getWords();
+      if (!words.length) { showDataStatus('No vocabulary to export yet.', true); return; }
+      const payload = {
+        app: 'semantica',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        wordCount: words.length,
+        words,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url  = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `semantica-vocab-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      showDataStatus(`Exported ${words.length} words.`);
+    });
+
+    const importFile = document.getElementById('acct-import-file');
+    document.getElementById('acct-import-btn').addEventListener('click', () => importFile.click());
+    importFile.addEventListener('change', async () => {
+      const file = importFile.files?.[0];
+      importFile.value = ''; // allow re-selecting the same file later
+      if (!file) return;
+      try {
+        const parsed = JSON.parse(await file.text());
+        // Accept both the export envelope { app, version, words } and a raw array
+        const rawWords = Array.isArray(parsed) ? parsed : parsed?.words;
+        if (!Array.isArray(rawWords)) throw new Error('Not a Semantica vocabulary file.');
+
+        // Sanitize each record. AI analysis is kept (no re-analysis needed);
+        // learning progress is RESET — a shared list's mastery isn't yours.
+        const records = rawWords
+          .filter(w => typeof w?.text === 'string' && w.text.trim())
+          .map(w => ({
+            text: w.text.trim(),
+            context: typeof w.context === 'string' ? w.context : '',
+            url: '',
+            title: '',
+            timestamp: Date.now(),
+            videoId: '',
+            videoTime: 0,
+            aiAnalysis: (w.aiAnalysis && typeof w.aiAnalysis === 'object') ? w.aiAnalysis : null,
+            learningState: 'new',
+            stats: { seen: 0, correct: 0, skipped: 0, consecutiveCorrect: 0 },
+          }));
+        if (!records.length) throw new Error('No valid words found in the file.');
+
+        const { added, skipped } = await apiImportWords(records);
+        pushWordCache();
+        await renderWords();
+        showDataStatus(`Imported ${added} new word${added === 1 ? '' : 's'}${skipped ? ` — ${skipped} already in your list` : ''}.`);
+      } catch (err) {
+        showDataStatus(err.message || 'Import failed — invalid file.', true);
+      }
+    });
+
     document.getElementById('acct-logout').addEventListener('click', handleLogout);
   }
 
@@ -1600,6 +1802,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function handleLogout() {
     clearAuthSession();
     if (window.electronAPI?.setToken) window.electronAPI.setToken(null);
+    // Clear the main-process word cache so the global search bar cannot
+    // expose the previous user's vocabulary after logout
+    if (window.electronAPI?.sendWordCache) window.electronAPI.sendWordCache([]);
     const settings = getSettings();
     await saveSettings({ ...settings, provider: 'freedict' });
     aiProviderSelect.value = 'freedict';
@@ -1802,7 +2007,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const srsReviews  = word.srs?.reviewCount ?? 0;
     const srsChipHtml = `<div style="padding-top:10px;margin-top:8px;border-top:1px solid var(--border);text-align:center;">
       <span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;background:${srsColor}18;color:${srsColor};border:1px solid ${srsColor}33;">
-        🕐 ${escapeHtml(srsLabel)}${srsReviews > 0 ? ` · reviewed ${srsReviews}×` : ' · never reviewed'}
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l-2 4"/></svg>
+        ${escapeHtml(srsLabel)}${srsReviews > 0 ? ` · reviewed ${srsReviews}×` : ' · never reviewed'}
       </span></div>`;
 
     back.innerHTML = `
@@ -2064,7 +2270,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const hintBtn = document.createElement('button');
     hintBtn.style.cssText = 'padding:8px 14px;font-size:12px;background:none;border:1px solid var(--border);border-radius:8px;color:var(--text-soft);cursor:pointer;font-family:inherit;';
-    hintBtn.textContent = '💡 Hint';
+    hintBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Hint';
     hintBtn.onclick = () => { hintLine.style.visibility = 'visible'; hintBtn.style.display = 'none'; };
 
     function checkAnswer() {

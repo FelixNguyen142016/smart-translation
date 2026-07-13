@@ -1,0 +1,66 @@
+name: Build & Release Semantica (Tauri)
+
+# Builds the active semantica-tauri app for macOS (universal, Intel + Apple
+# Silicon in one .dmg) and Windows, then publishes the installers as GitHub
+# Release assets via tauri-action — not as workflow artifacts. Release assets
+# are stored separately from GitHub's Actions/Packages storage quota, so this
+# workflow does not consume the 500MB free-tier storage limit that build.yml
+# (the legacy Electron workflow, left untouched) uses via upload-artifact.
+#
+# Tag pushes (v*) create/update a real GitHub Release with the installers
+# attached. Manual runs (workflow_dispatch) only validate that the build
+# pipeline still works — no tagName is set, so tauri-action builds but does
+# not publish anything, avoiding stray draft releases from test runs.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target universal-apple-darwin'
+          - platform: 'windows-latest'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          # semantica-tauri has no package.json (frontendDist is plain static
+          # files, no bundler) — Node is only needed so tauri-action can
+          # install the @tauri-apps/cli globally.
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './semantica-tauri/src-tauri -> target'
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: semantica-tauri
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Semantica {0}', github.ref_name) || '' }}
+          releaseBody: 'See the assets below to download and install.'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

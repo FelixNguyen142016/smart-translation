@@ -88,6 +88,17 @@ fn search_word(app: AppHandle, state: tauri::State<'_, AppState>, word: String) 
         })
         .cloned();
     close_search(app.clone());
+    // Give WebView2 a moment to tear down the search webview before creating
+    // a new one for the popup. Windows shares a WebView2 environment across
+    // an app's windows, and spinning up a new webview in the same tick as
+    // destroying another one can silently fail to attach/navigate there —
+    // the window still appears (correct position/size) but its content never
+    // paints, with no error surfaced anywhere. macOS/WKWebView doesn't share
+    // this fragility, which is why this only ever showed up during Windows
+    // testing. This command already runs off the main thread (Tauri
+    // dispatches sync commands to a worker pool), so sleeping here doesn't
+    // block the UI.
+    std::thread::sleep(std::time::Duration::from_millis(150));
     show_translate_popup(&app, &word, saved);
 }
 
@@ -131,8 +142,8 @@ fn show_word_of_day(app: AppHandle, state: tauri::State<'_, AppState>, word: Str
     // NOTE: do not auto-open DevTools here. Opening it moves OS focus to the
     // inspector, which fires WindowEvent::Focused(false) on this window and
     // trips the blur-dismiss handler below — the popup closes itself instantly.
-    // Use right-click → Inspect Element (or Cmd+Option+I) to debug manually.
-    let _ = WebviewWindowBuilder::new(&app, "popup", WebviewUrl::App("popup.html".into()))
+    // Use right-click → Inspect Element (or Cmd/Ctrl+Shift+I) to debug manually.
+    let build_result = WebviewWindowBuilder::new(&app, "popup", WebviewUrl::App("popup.html".into()))
         .inner_size(WOTD_W, WOTD_H)
         .position(x, y)
         .decorations(false)
@@ -143,6 +154,9 @@ fn show_word_of_day(app: AppHandle, state: tauri::State<'_, AppState>, word: Str
         .shadow(true)
         .focused(true)
         .build();
+    if let Err(e) = build_result {
+        eprintln!("Semantica: failed to create Word of the Day popup window: {e}");
+    }
 }
 
 /// Tray-corner anchor: below the menu bar top-right (macOS), above the
@@ -182,7 +196,7 @@ fn show_translate_popup(app: &AppHandle, word: &str, saved: Option<Value>) {
     let (x, y) = popup_position(app);
     // NOTE: do not auto-open DevTools here — see the identical note in
     // show_word_of_day above. Use right-click → Inspect Element instead.
-    let _ = WebviewWindowBuilder::new(app, "popup", WebviewUrl::App("popup.html".into()))
+    let build_result = WebviewWindowBuilder::new(app, "popup", WebviewUrl::App("popup.html".into()))
         .inner_size(POPUP_W, POPUP_H)
         .position(x, y)
         .decorations(false)
@@ -193,6 +207,9 @@ fn show_translate_popup(app: &AppHandle, word: &str, saved: Option<Value>) {
         .shadow(true)
         .focused(true)
         .build();
+    if let Err(e) = build_result {
+        eprintln!("Semantica: failed to create translate popup window: {e}");
+    }
 }
 
 /// Popup near the cursor, flipped away from screen edges (mirrors the Electron math).

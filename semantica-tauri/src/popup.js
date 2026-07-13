@@ -52,8 +52,24 @@ function authHeaders() {
   };
 }
 
+// Safety net: if the popup window opens but never receives word data at all
+// (the popup_ready/analyze-word IPC handoff silently fails — seen on Windows
+// when this window is created immediately after another one closes), the
+// user would otherwise stare at a permanently blank window with no error and
+// no way to recover, especially in a release build with DevTools disabled.
+// If nothing has arrived a few seconds after this script starts, show a
+// visible error instead. Cleared the moment real data shows up.
+let _gotFirstDispatch = false;
+setTimeout(() => {
+  if (!_gotFirstDispatch) {
+    console.error('Popup received no word data within 5s of loading — IPC handoff likely failed.');
+    renderError('', 'Semantica couldn’t load this word. Close this popup and try again.');
+  }
+}, 5000);
+
 // ── Receive word from main process ──────────────────────────────────────────
 window.electronAPI.onAnalyzeWord(async (word, token, savedData, wotd) => {
+  _gotFirstDispatch = true;
   const requestId = ++_requestSeq;
   _currentWord = word;
   _currentAnalysis = null;

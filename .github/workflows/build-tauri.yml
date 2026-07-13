@@ -6,6 +6,9 @@ on:
       - 'v[1-9]*'     # Tauri builds from v1.x.x onwards
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-mac:
     runs-on: macos-latest

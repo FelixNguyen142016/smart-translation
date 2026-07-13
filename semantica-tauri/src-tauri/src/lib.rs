@@ -72,8 +72,21 @@ fn close_popup(app: AppHandle) {
 
 /// Search bar Enter: look the word up in the cache, close the search bar,
 /// open the popup with savedData (instant render) or null (normal API flow).
+///
+/// Async: Tauri's own docs for `WebviewWindowBuilder::build()` (called inside
+/// `show_translate_popup`) state it deadlocks — or, empirically here, silently
+/// produces an unstyled/blank window — on Windows when called from a
+/// synchronous command or event handler (https://github.com/tauri-apps/wry/issues/583).
+/// Marking this command `async` routes it through Tauri's async dispatch
+/// instead of the sync-command worker pool, which is the fix the docs
+/// recommend. A previous fixed-duration sleep here targeted a different
+/// theory (a webview-teardown race) and did not resolve the real issue.
 #[tauri::command]
-fn search_word(app: AppHandle, state: tauri::State<'_, AppState>, word: String) {
+async fn search_word(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    word: String,
+) -> Result<(), ()> {
     let needle = word.to_lowercase();
     let saved = state
         .word_cache
@@ -88,18 +101,8 @@ fn search_word(app: AppHandle, state: tauri::State<'_, AppState>, word: String) 
         })
         .cloned();
     close_search(app.clone());
-    // Give WebView2 a moment to tear down the search webview before creating
-    // a new one for the popup. Windows shares a WebView2 environment across
-    // an app's windows, and spinning up a new webview in the same tick as
-    // destroying another one can silently fail to attach/navigate there —
-    // the window still appears (correct position/size) but its content never
-    // paints, with no error surfaced anywhere. macOS/WKWebView doesn't share
-    // this fragility, which is why this only ever showed up during Windows
-    // testing. This command already runs off the main thread (Tauri
-    // dispatches sync commands to a worker pool), so sleeping here doesn't
-    // block the UI.
-    std::thread::sleep(std::time::Duration::from_millis(150));
     show_translate_popup(&app, &word, saved);
+    Ok(())
 }
 
 /// Called by the popup page once its JS is ready — returns the payload stored
@@ -111,8 +114,14 @@ fn popup_ready(state: tauri::State<'_, AppState>) -> Option<Value> {
 
 /// Word of the Day: opens the popup in WOTD hero mode, anchored at the tray
 /// corner of the primary monitor (top-right on macOS, bottom-right on Windows).
+///
+/// Async for the same reason as `search_word` above — see its doc comment.
 #[tauri::command]
-fn show_word_of_day(app: AppHandle, state: tauri::State<'_, AppState>, word: String) {
+async fn show_word_of_day(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    word: String,
+) -> Result<(), ()> {
     let needle = word.to_lowercase();
     let saved = state
         .word_cache
@@ -133,7 +142,7 @@ fn show_word_of_day(app: AppHandle, state: tauri::State<'_, AppState>, word: Str
         let _ = app.emit_to("popup", "analyze-word", payload);
         let _ = win.show();
         let _ = win.set_focus();
-        return;
+        return Ok(());
     }
 
     *state.pending_popup.lock().unwrap() = Some(payload);
@@ -155,7 +164,32 @@ fn show_word_of_day(app: AppHandle, state: tauri::State<'_, AppState>, word: Str
         .focused(true)
         .build();
     if let Err(e) = build_result {
-        eprintln!("Semantica: failed to create Word of the Day popup window: {e}");
+        log_window_error(&app, "failed to create Word of the Day popup window", &e);
+    }
+    Ok(())
+}
+
+/// `eprintln!` is silently discarded in release builds on Windows — `main.rs`
+/// sets `windows_subsystem = "windows"` there, which detaches stderr — so a
+/// window-creation failure in a packaged build would otherwise leave zero
+/// trace. Best-effort mirror to a log file in the app's log dir as well.
+fn log_window_error(app: &AppHandle, context: &str, err: &tauri::Error) {
+    eprintln!("Semantica: {context}: {err}");
+    let Ok(dir) = app.path().app_log_dir() else { return };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("window-errors.log"))
+    {
+        use std::io::Write;
+        let _ = f.write_all(format!("[{secs}] {context}: {err}\n").as_bytes());
     }
 }
 
@@ -208,7 +242,7 @@ fn show_translate_popup(app: &AppHandle, word: &str, saved: Option<Value>) {
         .focused(true)
         .build();
     if let Err(e) = build_result {
-        eprintln!("Semantica: failed to create translate popup window: {e}");
+        log_window_error(app, "failed to create translate popup window", &e);
     }
 }
 

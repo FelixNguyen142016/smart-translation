@@ -119,10 +119,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     showMainApp();
   } else {
     showLoginPage();
-    // Tauri starts the window hidden (background app) — bring it up so the
-    // user can sign in. No-op on Electron, where the window is always shown.
-    window.electronAPI?.showDashboard?.();
   }
+  // Tauri starts the window hidden (background app) — bring it up now that
+  // the page has rendered. Must run for BOTH branches above: it was
+  // previously only called from the logged-out branch, so any already
+  // logged-in launch (i.e. every launch after the first) left the native
+  // window permanently hidden with nothing left to reveal it — the window
+  // itself is a separate concern from showMainApp()/showLoginPage(), which
+  // only toggle which <div> is visible *inside* an already-visible window.
+  // No-op on Electron, where the window is always shown.
+  window.electronAPI?.showDashboard?.();
 
   // ─── "How to use" card: platform-aware shortcut labels ───────────────────────
   {

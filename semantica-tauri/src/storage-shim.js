@@ -45,6 +45,7 @@ const DEFAULT_SETTINGS = {
   theme: 'cyan',
   accentHue: 190,
   darkMode: false,
+  visualPreset: null, // Visual Theme preset id (see theme.js VISUAL_PRESET_GROUPS), or null for the plain hue-driven look
 };
 
 /** Get settings from localStorage (with API fallback if token present). */

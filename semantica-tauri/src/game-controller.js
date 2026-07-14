@@ -8,6 +8,10 @@ import { getProfile, addXP, recordSession, unlockAchievement } from './player.js
 import { RaceMode, SurvivalMode, MissionMode } from './game-modes.js';
 import { renderMenu, renderResults, renderMissionObjectives, renderReview } from './game-render.js';
 import { escapeHtml } from './dom-utils.js';
+import {
+  mountRaceScene, isRaceSceneAvailable, setRaceProgress, resetRaceScene,
+  raceCorrect, raceWrong, raceSkip, raceWin, raceLose,
+} from './race-scene.js';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 let words = [], currentWord = null, modeInstance = null, selectedMode = 'race';
@@ -28,6 +32,29 @@ function showScreen(id) {
   if (el) el.classList.add('active');
 }
 
+// ─── Race visual (Phaser canvas, or the plain bar if it didn't load) ──────────
+function setupRaceVisual() {
+  const wrap      = document.querySelector('.race-bar-wrap');
+  const container = document.getElementById('race-canvas-container');
+  if (!container) return;
+  if (isRaceSceneAvailable()) {
+    mountRaceScene('race-canvas-container');
+    resetRaceScene();
+    if (wrap) wrap.style.display = 'none';
+    container.style.display = 'block';
+  } else {
+    container.style.display = 'none';
+    if (wrap) wrap.style.display = '';
+  }
+}
+
+function teardownRaceVisual() {
+  const wrap      = document.querySelector('.race-bar-wrap');
+  const container = document.getElementById('race-canvas-container');
+  if (container) container.style.display = 'none';
+  if (wrap) wrap.style.display = '';
+}
+
 // ─── Public Init ─────────────────────────────────────────────────────────────
 export function initGame() {
   words = getWords();                      // Bug 6: sync — no await needed
@@ -42,9 +69,16 @@ export function initGame() {
 
   document.getElementById('btn-play')?.addEventListener('click', () => showScreen('screen-mode'));
   document.getElementById('btn-review')?.addEventListener('click', () => { renderReview(); showScreen('screen-review'); });
-  document.querySelectorAll('.mode-card').forEach(card => {
+  // Scoped to #screen-mode: .mode-card is shared with the Practice tab's own
+  // mode picker (index.html #practice-screen-modes), which uses the same CSS
+  // class for visual consistency but a different data attribute
+  // (data-practice-mode, not data-mode). An unscoped querySelectorAll here
+  // would also bind this handler to those cards, setting selectedMode to
+  // undefined whenever one is clicked and leaving the Game tab's next
+  // session with no matching race/survival/mission branch.
+  document.querySelectorAll('#screen-mode .mode-card').forEach(card => {
     card.addEventListener('click', () => {
-      document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+      document.querySelectorAll('#screen-mode .mode-card').forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
       selectedMode = card.dataset.mode;
       // Show/hide race word-count selector
@@ -64,7 +98,7 @@ export function initGame() {
   document.getElementById('btn-play-again')?.addEventListener('click', () => { resetSession(); showScreen('screen-mode'); });
   document.getElementById('btn-back-menu')?.addEventListener('click', () => { const p = getProfile(); renderMenu(p); showScreen('screen-menu'); });
   document.getElementById('btn-back-menu-review')?.addEventListener('click', () => { const p = getProfile(); renderMenu(p); showScreen('screen-menu'); });
-  document.getElementById('btn-quit-game')?.addEventListener('click', () => { modeInstance?.stop?.(); endSession(); });
+  document.getElementById('btn-quit-game')?.addEventListener('click', () => { modeInstance?.stop?.(); endSession({ quit: true }); });
   document.getElementById('answer-input')?.addEventListener('keydown', e => { if (e.key === 'Enter') submitAnswer(); });
 }
 
@@ -93,6 +127,7 @@ async function startSession() {
     if (selectedMode === 'race') {
       const bar = document.getElementById('race-bar');
       if (bar) bar.style.width = val + '%';
+      setRaceProgress(val);
     }
   };
   const onGameOver = () => endSession();
@@ -111,6 +146,7 @@ async function startSession() {
   isSessionActive = true;
   modeInstance.start?.();
   showScreen('screen-play');
+  if (selectedMode === 'race') setupRaceVisual(); else teardownRaceVisual();
   nextRound();
 }
 
@@ -177,15 +213,18 @@ async function processResult(result, revealWord, word) {
     // Bug 1: track peak streak
     if (sessionStats.streak > sessionStats.maxStreak) sessionStats.maxStreak = sessionStats.streak;
     modeInstance?.onCorrect?.(result.hintUsed);
+    if (selectedMode === 'race') raceCorrect();
   } else if (result.skipped) {
     // Bug 2: skip is a soft action — show neutral feedback, don't call onWrong
     feedback.innerHTML = `<span class="feedback-wrong">→ Skipped: <strong>${escapeHtml(word.text)}</strong></span>`;
     sessionStats.streak = 0;
     modeInstance?.onSkip?.();
+    if (selectedMode === 'race') raceSkip();
   } else {
     feedback.innerHTML = `<span class="feedback-wrong">✗ The answer was: <strong>${escapeHtml(revealWord)}</strong></span>`;
     sessionStats.streak = 0;
     modeInstance?.onWrong?.();
+    if (selectedMode === 'race') raceWrong();
   }
 
   // Race log: record every answered word
@@ -250,10 +289,19 @@ function skipWord() {
 }
 
 // ─── End Session ──────────────────────────────────────────────────────────────
-async function endSession() {
+async function endSession(opts = {}) {
   if (!isSessionActive) return;
   isSessionActive = false;
   currentWord = null;
+
+  // Race visual: win if the queue ran out while progress was still alive,
+  // lose if RaceMode already ended it at 0 (see RaceMode.end() in
+  // game-modes.js). A manual quit gets neither — just stop where it is.
+  if (selectedMode === 'race' && !opts.quit) {
+    if (modeInstance && modeInstance.progress > 0) raceWin();
+    else raceLose();
+  }
+
   modeInstance?.stop?.();
   const profile = await recordSession(sessionStats);
   const newAchievements = checkAchievements(profile, sessionStats);

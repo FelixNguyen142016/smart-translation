@@ -4,7 +4,7 @@
 
 import { getWords, deleteWord, updateWord, saveWord, getSettings, saveSettings } from './storage-shim.js';
 import { initGame } from './game-controller.js';
-import { applyTheme, applyHueTheme } from './theme.js';
+import { applyTheme, applyHueTheme, VISUAL_PRESET_GROUPS, getVisualPreset, applyVisualPreset } from './theme.js';
 import { nextLearningState } from './game-engine.js';
 import { escapeHtml } from './dom-utils.js';
 import {
@@ -109,6 +109,21 @@ function speakText(word, audioBase64) {
   window.speechSynthesis.speak(utterance);
 }
 
+// ─── Reusable "speaker" button (icon circle + label) ────────────────────────
+// Same markup/behavior used across the vocab list, the review flashcard back,
+// and Listen and Write practice — centralized here to avoid drift across the
+// three call sites now that a third one exists.
+function createSpeakerButton(word, audioBase64, label = 'Play') {
+  const btn = document.createElement('button');
+  btn.style.cssText = 'display:inline-flex;align-items:center;gap:5px;color:var(--text-muted);background:none;border:none;cursor:pointer;font-size:11px;font-family:inherit;padding:0;transition:color 0.15s;';
+  btn.innerHTML = `<span style="width:22px;height:22px;border-radius:50%;background:linear-gradient(rgba(6,182,212,0.14),rgba(6,182,212,0.14)), var(--muted-bg);display:flex;align-items:center;justify-content:center;transition:background 0.15s;"><i data-lucide="volume-2" style="width:11px;height:11px;color:var(--brand);stroke-width:2.5;"></i></span><span>${escapeHtml(label)}</span>`;
+  btn.onmouseenter = () => { btn.style.color = 'var(--brand)'; btn.querySelector('span').style.background = 'linear-gradient(rgba(6,182,212,0.26),rgba(6,182,212,0.26)), var(--muted-bg)'; };
+  btn.onmouseleave = () => { btn.style.color = 'var(--text-muted)'; btn.querySelector('span').style.background = 'linear-gradient(rgba(6,182,212,0.14),rgba(6,182,212,0.14)), var(--muted-bg)'; };
+  btn.onclick = (e) => { e.stopPropagation(); speakText(word, audioBase64); };
+  if (window.lucide) window.lucide.createIcons({ nodes: [btn] });
+  return btn;
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
 
   // ─── Initialise Lucide SVG icons ─────────────────────────────────────────────
@@ -140,7 +155,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // (⌘+Shift+D / Ctrl+Shift+D) rather than only the detected platform's —
       // mirrors the Vietnamese translation below it, which always shows both.
       lookupEl.innerHTML = isTauri
-        ? `Press <strong>⌘+Shift+D</strong> / <strong>Ctrl+Shift+D</strong> (or click the Semantica tray icon)`
+        ? `Press <strong>⌘+Shift+D</strong> / <strong>Ctrl+Shift+D</strong> (or click the Semantica tray icon) to search, or copy a word anywhere and press <strong>⌘+Shift+E</strong> / <strong>Ctrl+Shift+E</strong> to translate it instantly`
         : `Press <strong>${mod}+Shift+F</strong> — or copy a word and press <strong>${mod}+Shift+T</strong>`;
     }
     const bgEl = document.getElementById('howto-background');
@@ -288,7 +303,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (tab.dataset.target === 'game-view')      initGame();
       if (tab.dataset.target === 'sentences-view') renderSentences();
       if (tab.dataset.target === 'videos-view')    renderVideos();
-      if (tab.dataset.target === 'practice-view')  renderPractice();
+      if (tab.dataset.target === 'practice-view')  showPracticeModeSelect();
       if (tab.dataset.target === 'account-settings-view') {
         const token = getToken();
         if (token) {
@@ -353,6 +368,97 @@ document.addEventListener('DOMContentLoaded', async () => {
     navDarkBtn.textContent = darkToggle.checked ? '☀️' : '🌙';
   });
 
+  // ── Visual Theme presets ──────────────────────────────────────────────────
+  // Independent from the hue slider and Dark Mode toggle above: a preset only
+  // sets page background, card background, and text/border colors (see
+  // theme.js applyVisualPreset). Accent color stays fully hue-slider-driven,
+  // and Dark Mode keeps controlling the plain (no-preset) look — each preset
+  // carries its own self-contained legible palette regardless of either.
+  let _activeVisualPresetId = currentSettings.visualPreset || null;
+  if (_activeVisualPresetId) {
+    applyVisualPreset(getVisualPreset(_activeVisualPresetId));
+  }
+
+  const presetGroupsEl        = document.getElementById('visual-preset-groups');
+  const customControlsEl      = document.getElementById('custom-theme-controls');
+
+  function renderVisualPresetPicker() {
+    customControlsEl.style.display = _activeVisualPresetId ? 'none' : 'block';
+    presetGroupsEl.innerHTML = '';
+
+    // ── "Custom" — first tile, always present. Selecting it clears the
+    // active preset and reveals the hue slider + Dark Mode toggle below,
+    // i.e. the original manual color system, now with an explicit seat in
+    // the picker instead of being an implicit "nothing selected" fallback.
+    const customGrid = document.createElement('div');
+    customGrid.className = 'preset-grid';
+    const customBtn = document.createElement('button');
+    customBtn.type = 'button';
+    const isCustomActive = !_activeVisualPresetId;
+    customBtn.className = 'preset-swatch' + (isCustomActive ? ' active' : '');
+    customBtn.title = 'Custom';
+    customBtn.innerHTML = `
+      <div class="preset-swatch-preview" style="background:linear-gradient(135deg, #f8fafc 0%, #f8fafc 49%, #0f172a 51%, #0f172a 100%);display:flex;align-items:center;justify-content:center;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
+        ${isCustomActive ? `<div class="preset-swatch-check"><svg width="8" height="8" viewBox="0 0 9 9" fill="none"><path d="M1.5 4.5L3.5 6.5L7.5 2" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>` : ''}
+      </div>
+      <div class="preset-swatch-info">
+        <div class="preset-swatch-name">Custom</div>
+        <div class="preset-swatch-tagline">Pick your own accent &amp; light/dark mode</div>
+      </div>`;
+    customBtn.addEventListener('click', () => {
+      _activeVisualPresetId = null;
+      applyVisualPreset(null);
+      renderVisualPresetPicker();
+    });
+    customGrid.appendChild(customBtn);
+    presetGroupsEl.appendChild(customGrid);
+
+    VISUAL_PRESET_GROUPS.forEach(group => {
+      const groupEl = document.createElement('div');
+      groupEl.className = 'preset-group';
+
+      const head = document.createElement('div');
+      head.className = 'preset-group-head';
+      head.innerHTML = `<span class="emoji">${group.emoji}</span><span class="label">${escapeHtml(group.label)}</span><span class="preset-group-line"></span>`;
+      groupEl.appendChild(head);
+
+      const grid = document.createElement('div');
+      grid.className = 'preset-grid';
+
+      group.presets.forEach(preset => {
+        const isActive = _activeVisualPresetId === preset.id;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'preset-swatch' + (isActive ? ' active' : '');
+        btn.title = preset.name;
+        btn.innerHTML = `
+          <div class="preset-swatch-preview" style="background:${preset.pageBg}">
+            <div class="preset-swatch-dots">
+              <span class="preset-swatch-dot" style="background:${preset.previewAccent}"></span>
+              <span class="preset-swatch-dot" style="background:${preset.previewSecondary}"></span>
+            </div>
+            ${isActive ? `<div class="preset-swatch-check"><svg width="8" height="8" viewBox="0 0 9 9" fill="none"><path d="M1.5 4.5L3.5 6.5L7.5 2" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></div>` : ''}
+          </div>
+          <div class="preset-swatch-info">
+            <div class="preset-swatch-name">${escapeHtml(preset.name)}</div>
+            <div class="preset-swatch-tagline">${escapeHtml(preset.tagline)}</div>
+          </div>`;
+        btn.addEventListener('click', () => {
+          _activeVisualPresetId = preset.id;
+          applyVisualPreset(preset);
+          renderVisualPresetPicker();
+        });
+        grid.appendChild(btn);
+      });
+
+      groupEl.appendChild(grid);
+      presetGroupsEl.appendChild(groupEl);
+    });
+  }
+
+  renderVisualPresetPicker();
+
   toggleProviderNote(aiProviderSelect.value);
   aiProviderSelect.addEventListener('change', () => toggleProviderNote(aiProviderSelect.value));
 
@@ -370,6 +476,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       targetLanguage: 'Vietnamese', // fixed: Semantica is English → Vietnamese
       accentHue: parseInt(hueSlider.value, 10),
       darkMode: darkToggle.checked,
+      visualPreset: _activeVisualPresetId,
     };
     await saveSettings(newSettings);
     applyHueTheme(newSettings.accentHue, newSettings.darkMode);
@@ -428,6 +535,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const selectedBands  = new Set(); // Set<number>
   const selectedTopics = new Set(); // Set<string>
 
+  // ─── Alphabetical sort state ─────────────────────────────────────────────────
+  // null = default order (cache order — newest saved word first); 'asc'/'desc' =
+  // A→Z / Z→A by word text. Cycled by the sort button in initVocabSearch().
+  let _vocabSortOrder = null;
+
   function renderTagCloud(allWords) {
     if (!allWords) allWords = getWords().slice();
 
@@ -465,8 +577,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const bc  = bandColors[band] || '#64748b';
         const btn = document.createElement('button');
         btn.className = 'tag-chip' + (selectedBands.has(band) ? ' active' : '');
-        btn.style.cssText = `background:${bc}15;color:${bc};border-color:${bc}40;font-weight:700;letter-spacing:0.03em;`;
-        btn.innerHTML = `Band ${band} <span class="tag-count" style="background:${bc}25;color:${bc};">${count}</span>`;
+        btn.style.cssText = `background:linear-gradient(${bc}22,${bc}22), var(--muted-bg);color:${bc};border-color:${bc}40;font-weight:700;letter-spacing:0.03em;`;
+        btn.innerHTML = `Band ${band} <span class="tag-count" style="background:linear-gradient(${bc}35,${bc}35), var(--muted-bg);color:${bc};">${count}</span>`;
         btn.addEventListener('click', () => {
           if (selectedBands.has(band)) selectedBands.delete(band); else selectedBands.add(band);
           renderWords();
@@ -484,8 +596,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       [...topicCounts.entries()].sort((a, b) => b[1] - a[1]).forEach(([topic, count]) => {
         const btn = document.createElement('button');
         btn.className = 'tag-chip' + (selectedTopics.has(topic) ? ' active' : '');
-        btn.style.cssText = 'background:rgba(99,102,241,0.08);color:#818cf8;border-color:rgba(99,102,241,0.3);';
-        btn.innerHTML = `${escapeHtml(topic)} <span class="tag-count" style="background:rgba(99,102,241,0.15);color:#818cf8;">${count}</span>`;
+        btn.style.cssText = 'background:linear-gradient(rgba(99,102,241,0.14),rgba(99,102,241,0.14)), var(--muted-bg);color:#818cf8;border-color:rgba(99,102,241,0.3);';
+        btn.innerHTML = `${escapeHtml(topic)} <span class="tag-count" style="background:linear-gradient(rgba(99,102,241,0.22),rgba(99,102,241,0.22)), var(--muted-bg);color:#818cf8;">${count}</span>`;
         btn.addEventListener('click', () => {
           if (selectedTopics.has(topic)) selectedTopics.delete(topic); else selectedTopics.add(topic);
           renderWords();
@@ -622,6 +734,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
 
+    // Alphabetical sort overrides whatever ordering the block above produced
+    // (cache order or search relevance order) — applies on top of any active
+    // filters/search rather than replacing them.
+    if (_vocabSortOrder) {
+      words = words.slice().sort((a, b) =>
+        _vocabSortOrder === 'asc'
+          ? a.text.localeCompare(b.text)
+          : b.text.localeCompare(a.text)
+      );
+    }
+
     updateFilterBar(words.length);
     tableBody.innerHTML = '';
 
@@ -677,7 +800,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         input.type = 'text';
         input.value = word.text;
         input.maxLength = 60;
-        input.style.cssText = 'font-size:18px;font-weight:700;color:var(--text-main);border:1px solid var(--brand);border-radius:6px;padding:2px 6px;width:150px;font-family:inherit;background:var(--bg);';
+        input.style.cssText = 'font-size:18px;font-weight:700;color:var(--text-main);border:1px solid var(--brand);border-radius:6px;padding:2px 6px;width:150px;font-family:inherit;background:var(--card-bg-translucent, rgba(255,255,255,0.7));';
 
         const warnEl = document.createElement('span');
         warnEl.style.cssText = 'font-size:10px;color:#ef4444;white-space:nowrap;';
@@ -738,17 +861,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       phonetic.style.cssText = 'font-size:11px;color:var(--text-muted);font-family:monospace;margin-bottom:8px;';
       phonetic.textContent = (word.aiAnalysis?.pronunciation) || '';
 
-      const playBtn = document.createElement('button');
-      playBtn.style.cssText = 'display:inline-flex;align-items:center;gap:5px;color:var(--text-muted);background:none;border:none;cursor:pointer;font-size:11px;font-family:inherit;padding:0;transition:color 0.15s;';
-      playBtn.innerHTML = `<span style="width:22px;height:22px;border-radius:50%;background:rgba(6,182,212,0.10);display:flex;align-items:center;justify-content:center;transition:background 0.15s;"><i data-lucide="volume-2" style="width:11px;height:11px;color:var(--brand);stroke-width:2.5;"></i></span><span>Play</span>`;
-      playBtn.onmouseenter = () => { playBtn.style.color = 'var(--brand)'; playBtn.querySelector('span').style.background = 'rgba(6,182,212,0.20)'; };
-      playBtn.onmouseleave = () => { playBtn.style.color = 'var(--text-muted)'; playBtn.querySelector('span').style.background = 'rgba(6,182,212,0.10)'; };
-      playBtn.onclick = (e) => { e.stopPropagation(); speakText(word.text, word.aiAnalysis?.audioBase64); };
+      const playBtn = createSpeakerButton(word.text, word.aiAnalysis?.audioBase64, 'Play');
 
       tdWord.appendChild(wordRow);
       tdWord.appendChild(phonetic);
       tdWord.appendChild(playBtn);
-      if (window.lucide) window.lucide.createIcons({ nodes: [playBtn] });
 
       // Band badge — displayed as its own line under the play button
       const ieltsForBadge = lookupIelts(word.text);
@@ -758,7 +875,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const bandBadge = document.createElement('div');
         bandBadge.style.cssText = `margin-top:7px;`;
         const bandPill = document.createElement('span');
-        bandPill.style.cssText = `padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;background:${bc}18;color:${bc};border:1px solid ${bc}40;`;
+        bandPill.style.cssText = `padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;background:linear-gradient(${bc}28,${bc}28), var(--muted-bg);color:${bc};border:1px solid ${bc}40;`;
         bandPill.textContent = `Band ${ieltsForBadge.band}`;
         bandBadge.appendChild(bandPill);
         tdWord.appendChild(bandBadge);
@@ -768,12 +885,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       const tdContext = document.createElement('td');
       tdContext.className = 'context-col';
 
-      const contextDiv = document.createElement('div');
-      contextDiv.style.fontStyle   = 'italic';
-      contextDiv.style.marginBottom = '4px';
-      contextDiv.style.color        = 'var(--text-muted)';
-      contextDiv.textContent        = `"${word.context}"`;
-      tdContext.appendChild(contextDiv);
+      // word.context only exists for words captured from a real sentence
+      // (video subtitle, imported text, etc.) — words saved by looking up an
+      // individual word (search bar, popup, "Define this word") have no
+      // context at all, so quoting an empty string used to render a bare ""
+      // with nothing inside it. Only show the quoted line when there's an
+      // actual sentence to quote.
+      if (word.context && word.context.trim()) {
+        const contextDiv = document.createElement('div');
+        contextDiv.style.fontStyle   = 'italic';
+        contextDiv.style.marginBottom = '4px';
+        contextDiv.style.color        = 'var(--text-muted)';
+        contextDiv.textContent        = `"${word.context}"`;
+        tdContext.appendChild(contextDiv);
+      }
 
       // YouTube jump-to-moment link
       if (word.videoId) {
@@ -853,7 +978,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           input.type        = 'text';
           input.placeholder = 'tag name…';
           input.maxLength   = 30;
-          input.style.cssText = 'border:1px solid var(--brand);border-radius:6px;padding:3px 8px;font-size:10px;font-family:inherit;outline:none;width:80px;background:var(--bg);color:var(--text);';
+          input.style.cssText = 'border:1px solid var(--brand);border-radius:6px;padding:3px 8px;font-size:10px;font-family:inherit;outline:none;width:80px;background:var(--card-bg-translucent, rgba(255,255,255,0.7));color:var(--text-main);';
           tdTags.appendChild(input);
           input.focus();
 
@@ -926,7 +1051,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (analysis.ieltsTopics && analysis.ieltsTopics.length > 0) {
       analysis.ieltsTopics.forEach(topic => {
         const chip = document.createElement('span');
-        chip.style.cssText = 'padding:1px 7px;border-radius:999px;font-size:10px;font-weight:600;background:rgba(99,102,241,0.1);color:#818cf8;border:1px solid rgba(99,102,241,0.25);';
+        chip.style.cssText = 'padding:1px 7px;border-radius:999px;font-size:10px;font-weight:600;background:linear-gradient(rgba(99,102,241,0.14),rgba(99,102,241,0.14)), var(--muted-bg);color:#818cf8;border:1px solid rgba(99,102,241,0.25);';
         chip.textContent = topic;
         metaRow.appendChild(chip);
       });
@@ -954,10 +1079,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // English definition — EN label inline, Figma style
     if (analysis.definition) {
       const defRow = document.createElement('div');
-      defRow.style.cssText = 'display:flex;align-items:flex-start;gap:8px;justify-content:space-between;padding-top:8px;border-top:1px solid rgba(6,182,212,0.12);margin-top:4px;margin-bottom:6px;';
+      defRow.style.cssText = 'display:flex;align-items:flex-start;gap:8px;justify-content:space-between;padding-top:8px;border-top:1px solid var(--border);margin-top:4px;margin-bottom:6px;';
 
       const enLabel = document.createElement('span');
-      enLabel.style.cssText = 'font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:rgba(6,182,212,0.6);margin-top:2px;flex-shrink:0;';
+      enLabel.style.cssText = 'font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-soft);margin-top:2px;flex-shrink:0;';
       enLabel.textContent = 'EN';
       defRow.appendChild(enLabel);
 
@@ -1017,7 +1142,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Example sentences
     if (analysis.exampleSentence) {
       const exBlock = document.createElement('div');
-      exBlock.style.cssText = 'padding-top:8px;border-top:1px solid rgba(0,0,0,0.07)';
+      exBlock.style.cssText = 'padding-top:8px;border-top:1px solid var(--border)';
 
       const ex = document.createElement('div');
       ex.style.cssText = 'font-size:0.88em;color:var(--text-muted);font-style:italic;line-height:1.5;margin-bottom:3px';
@@ -1038,10 +1163,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ielts = lookupIelts(word.text);
     if (ielts && ielts.collocations.length > 0) {
       const collBlock = document.createElement('div');
-      collBlock.style.cssText = 'padding-top:8px;margin-top:4px;border-top:1px solid rgba(6,182,212,0.12);';
+      collBlock.style.cssText = 'padding-top:8px;margin-top:4px;border-top:1px solid var(--border);';
 
       const label = document.createElement('div');
-      label.style.cssText = 'font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:rgba(6,182,212,0.6);margin-bottom:6px;';
+      label.style.cssText = 'font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-soft);margin-bottom:6px;';
       label.textContent = 'Common Collocations';
       collBlock.appendChild(label);
 
@@ -1051,7 +1176,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Show first 6 collocations
       ielts.collocations.slice(0, 6).forEach(phrase => {
         const pill = document.createElement('span');
-        pill.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(6,182,212,0.07);border:1px solid rgba(6,182,212,0.18);color:var(--text-muted);';
+        pill.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:999px;background:linear-gradient(rgba(6,182,212,0.10),rgba(6,182,212,0.10)), var(--muted-bg);border:1px solid rgba(6,182,212,0.18);color:var(--text-muted);';
         pill.textContent = phrase;
         pills.appendChild(pill);
       });
@@ -1064,7 +1189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           more.remove();
           ielts.collocations.slice(6).forEach(phrase => {
             const pill = document.createElement('span');
-            pill.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(6,182,212,0.07);border:1px solid rgba(6,182,212,0.18);color:var(--text-muted);';
+            pill.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:999px;background:linear-gradient(rgba(6,182,212,0.10),rgba(6,182,212,0.10)), var(--muted-bg);border:1px solid rgba(6,182,212,0.18);color:var(--text-muted);';
             pill.textContent = phrase;
             pills.appendChild(pill);
           });
@@ -1325,8 +1450,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     const searchClear   = document.getElementById('vocab-search-clear');
     const definePrompt  = document.getElementById('search-define-prompt');
     const defineBtn     = document.getElementById('search-define-btn');
+    const sortBtn       = document.getElementById('vocab-sort-btn');
 
     let _searchTerm = '';
+
+    // Cycles: default (newest first) → A–Z → Z–A → default. Rebuilds the
+    // button's innerHTML with a fresh data-lucide tag each click (rather
+    // than mutating the already-rendered <svg> in place) — same pattern
+    // used everywhere else in this file (e.g. playBtn, editWordBtn) since
+    // lucide's createIcons() only converts unconverted [data-lucide] tags.
+    sortBtn.addEventListener('click', () => {
+      _vocabSortOrder = _vocabSortOrder === null ? 'asc' : _vocabSortOrder === 'asc' ? 'desc' : null;
+
+      const isActive = _vocabSortOrder !== null;
+      sortBtn.style.background  = isActive ? 'var(--brand-soft)' : 'none';
+      sortBtn.style.borderColor = isActive ? 'var(--brand-border)' : 'var(--border)';
+      sortBtn.style.color       = isActive ? 'var(--brand)' : 'var(--text-muted)';
+
+      const icon  = _vocabSortOrder === 'desc' ? 'arrow-down-a-z' : _vocabSortOrder === 'asc' ? 'arrow-up-a-z' : 'arrow-up-down';
+      const label = _vocabSortOrder === 'desc' ? 'Z–A' : 'A–Z';
+      sortBtn.innerHTML = `<i data-lucide="${icon}" style="width:13px;height:13px;display:block;stroke-width:2;"></i>` +
+        (isActive ? `<span>${label}</span>` : '');
+      if (window.lucide) window.lucide.createIcons({ nodes: [sortBtn] });
+
+      // Re-run the current search/filter state (falls back to the plain
+      // filtered list when the search box is empty) — renderWords() picks up
+      // the new _vocabSortOrder either way.
+      applySearchFilter(_searchTerm);
+    });
 
     searchInput.addEventListener('input', () => {
       _searchTerm = searchInput.value.trim().toLowerCase();
@@ -1468,7 +1619,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (analysis.translation) {
           const tr = document.createElement('div');
-          tr.style.cssText = 'font-size:20px;font-weight:700;color:var(--text);margin-bottom:6px;';
+          tr.style.cssText = 'font-size:20px;font-weight:700;color:var(--text-main);margin-bottom:6px;';
           tr.textContent = analysis.translation;
           card.appendChild(tr);
         }
@@ -1480,12 +1631,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (analysis.definition) {
           const defRow = document.createElement('div');
-          defRow.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding-top:8px;border-top:1px solid rgba(6,182,212,0.12);';
+          defRow.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding-top:8px;border-top:1px solid var(--border);';
           const enLabel = document.createElement('span');
-          enLabel.style.cssText = 'font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:rgba(6,182,212,0.6);margin-top:3px;flex-shrink:0;';
+          enLabel.style.cssText = 'font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-soft);margin-top:3px;flex-shrink:0;';
           enLabel.textContent = 'EN';
           const defText = document.createElement('div');
-          defText.style.cssText = 'font-size:12px;color:var(--text);line-height:1.5;';
+          defText.style.cssText = 'font-size:12px;color:var(--text-main);line-height:1.5;';
           defText.textContent = analysis.definition;
           defRow.appendChild(enLabel);
           defRow.appendChild(defText);
@@ -1493,7 +1644,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (analysis.exampleSentence) {
           const ex = document.createElement('div');
-          ex.style.cssText = 'margin-top:10px;padding:8px 10px;border-radius:8px;background:rgba(6,182,212,0.06);font-size:12px;color:var(--text-muted);font-style:italic;line-height:1.5;';
+          ex.style.cssText = 'margin-top:10px;padding:8px 10px;border-radius:8px;background:linear-gradient(rgba(6,182,212,0.10),rgba(6,182,212,0.10)), var(--muted-bg);font-size:12px;color:var(--text-muted);font-style:italic;line-height:1.5;';
           ex.textContent = `"${analysis.exampleSentence}"`;
           card.appendChild(ex);
         }
@@ -2008,6 +2159,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     back.innerHTML = `
       <div class="fc-word" style="font-size:28px;margin-bottom:4px;">${escapeHtml(word.text)}</div>
       <div class="fc-phonetic">${escapeHtml(analysis.pronunciation || '')}</div>
+      <div id="fc-speaker-slot" style="display:flex;justify-content:center;margin-top:6px;"></div>
       <div style="width:100%;border-top:1px solid var(--border);padding-top:14px;margin-top:10px;space-y:8px;">
         ${analysis.translation ? `<div class="fc-translation">${escapeHtml(analysis.translation)}</div>` : ''}
         ${analysis.definitionTranslated ? `<div class="fc-def-native" style="text-align:left;">${escapeHtml(analysis.definitionTranslated)}</div>` : ''}
@@ -2019,6 +2171,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         ${srsChipHtml}
       </div>
     `;
+
+    // Replay speaker — built as a real element (not innerHTML) so it can carry
+    // a click handler, same convention as the vocab-list play button. Audio
+    // already auto-plays once when the card flips (see the perspective click
+    // listener below); this lets the user hear the word again on demand.
+    const speakerBtn = createSpeakerButton(word.text, analysis.audioBase64, 'Play again');
+    back.querySelector('#fc-speaker-slot').appendChild(speakerBtn);
 
     inner.appendChild(front);
     inner.appendChild(back);
@@ -2088,7 +2247,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // ─── Practice Mode (Fill-in-the-Blank) ───────────────────────────────────────
+  // ─── Practice: mode selection ────────────────────────────────────────────────
+  // Two independent modes share the #practice-container render target, switched
+  // between via a mode-picker screen (mirrors the Game tab's Choose-a-Mode
+  // pattern) — see practice-screen-modes/practice-screen-session in index.html.
+
+  const practiceModesScreen  = document.getElementById('practice-screen-modes');
+  const practiceSessionScreen = document.getElementById('practice-screen-session');
+
+  function showPracticeModeSelect() {
+    practiceSessionScreen.classList.remove('active');
+    practiceModesScreen.classList.add('active');
+  }
+
+  function showPracticeSession() {
+    practiceModesScreen.classList.remove('active');
+    practiceSessionScreen.classList.add('active');
+  }
+
+  document.querySelectorAll('#practice-screen-modes .mode-card').forEach(card => {
+    card.addEventListener('click', () => {
+      showPracticeSession();
+      if (card.dataset.practiceMode === 'listen-write') renderListenWrite();
+      else renderPractice();
+    });
+  });
+
+  // ─── Practice: Read and Write (fill-in-the-blank) ────────────────────────────
 
   let _practiceQueue   = [];
   let _practiceIndex   = 0;
@@ -2129,8 +2314,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div style="text-align:center;color:var(--text-muted);padding:40px 0;">
           <div style="font-size:48px;margin-bottom:12px;">✍️</div>
           <h2>No sentences yet</h2>
-          <p style="font-size:14px;">Look up words to get AI example sentences, then come back to practice.</p>
+          <p style="font-size:14px;margin-bottom:16px;">Look up words to get AI example sentences, then come back to practice.</p>
+          <button class="btn-ghost" id="practice-back-modes-empty" style="padding:10px 20px;">← Back to modes</button>
         </div>`;
+      document.getElementById('practice-back-modes-empty').onclick = showPracticeModeSelect;
       return;
     }
 
@@ -2161,9 +2348,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
 
             <button class="btn-primary" id="restart-practice" style="padding:10px 28px;">Practice Again</button>
+            <button class="btn-ghost" id="practice-back-modes" style="padding:10px 20px;">← Back to modes</button>
           </div>
         </div>`;
       document.getElementById('restart-practice').onclick = renderPractice;
+      document.getElementById('practice-back-modes').onclick = showPracticeModeSelect;
       return;
     }
 
@@ -2318,6 +2507,211 @@ document.addEventListener('DOMContentLoaded', async () => {
     fitbCard.appendChild(hintRow);
 
     practiceContainer.appendChild(fitbCard);
+    input.focus();
+  }
+
+  // ─── Practice: Listen and Write ──────────────────────────────────────────────
+  // Structurally parallel to Read and Write above, but the queue is every saved
+  // word (no sentence needed — this mode only needs the word + its audio, and
+  // speakText() already falls back to Web Speech API when there's no cached
+  // TTS) and there's no sentence-blanking: the word itself is hidden and the
+  // user types what they hear. Separate correct/wrong tracking so switching
+  // modes mid-session doesn't cross-contaminate either mode's score.
+
+  let _listenQueue   = [];
+  let _listenIndex   = 0;
+  let _listenCorrect = [];
+  let _listenWrong   = [];
+
+  async function renderListenWrite() {
+    const words = await getWords();
+    _listenQueue = words.slice();
+    // Fisher-Yates shuffle
+    for (let i = _listenQueue.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [_listenQueue[i], _listenQueue[j]] = [_listenQueue[j], _listenQueue[i]];
+    }
+    _listenIndex   = 0;
+    _listenCorrect = [];
+    _listenWrong   = [];
+    _showNextListen();
+  }
+
+  function _showNextListen() {
+    practiceContainer.innerHTML = '';
+
+    if (_listenQueue.length === 0) {
+      practiceContainer.innerHTML = `
+        <div style="text-align:center;color:var(--text-muted);padding:40px 0;">
+          <div style="font-size:48px;margin-bottom:12px;">🎧</div>
+          <h2>No words yet</h2>
+          <p style="font-size:14px;margin-bottom:16px;">Save some words first, then come back to practice listening.</p>
+          <button class="btn-ghost" id="listen-back-modes-empty" style="padding:10px 20px;">← Back to modes</button>
+        </div>`;
+      document.getElementById('listen-back-modes-empty').onclick = showPracticeModeSelect;
+      return;
+    }
+
+    if (_listenIndex >= _listenQueue.length) {
+      const total = _listenCorrect.length + _listenWrong.length;
+      const score = total > 0 ? Math.round((_listenCorrect.length / total) * 100) : 0;
+
+      const wordList = (words, color, icon) => words.length === 0
+        ? `<span style="color:var(--text-soft);font-size:13px;">None</span>`
+        : words.map(w => `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;background:${color}15;color:${color};border:1px solid ${color}30;margin:3px 2px;">${icon} ${escapeHtml(w.text)}</span>`).join('');
+
+      practiceContainer.innerHTML = `
+        <div style="width:100%;max-width:560px;">
+          <div class="fitb-card" style="text-align:center;">
+            <div style="font-size:48px;margin-bottom:8px;">🎉</div>
+            <h2 style="color:var(--text-main);margin:0 0 4px;">Session Complete!</h2>
+            <p style="color:var(--text-muted);margin:0 0 16px;">You practised ${total} word${total !== 1 ? 's' : ''}</p>
+            <div style="font-size:36px;font-weight:700;background:linear-gradient(135deg,var(--brand),var(--brand-2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:20px;">${score}%</div>
+
+            <div style="text-align:left;margin-bottom:16px;">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#16a34a;margin-bottom:8px;">✓ Correct (${_listenCorrect.length})</div>
+              <div style="display:flex;flex-wrap:wrap;gap:2px;">${wordList(_listenCorrect, '#16a34a', '✓')}</div>
+            </div>
+
+            <div style="text-align:left;margin-bottom:24px;">
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#ef4444;margin-bottom:8px;">✗ Needs work (${_listenWrong.length})</div>
+              <div style="display:flex;flex-wrap:wrap;gap:2px;">${wordList(_listenWrong, '#ef4444', '✗')}</div>
+            </div>
+
+            <button class="btn-primary" id="restart-listen" style="padding:10px 28px;">Practice Again</button>
+            <button class="btn-ghost" id="listen-back-modes" style="padding:10px 20px;">← Back to modes</button>
+          </div>
+        </div>`;
+      document.getElementById('restart-listen').onclick = renderListenWrite;
+      document.getElementById('listen-back-modes').onclick = showPracticeModeSelect;
+      return;
+    }
+
+    const word     = _listenQueue[_listenIndex];
+    const analysis = word.aiAnalysis || {};
+    const total    = _listenQueue.length;
+    const progress = Math.round((_listenIndex / total) * 100);
+    let answered   = false;
+
+    // Progress bar
+    const progressWrap = document.createElement('div');
+    progressWrap.style.cssText = 'width:100%;background:rgba(0,0,0,0.07);border-radius:999px;height:4px;margin-bottom:20px;overflow:hidden;';
+    progressWrap.innerHTML = `<div style="height:4px;border-radius:999px;background:linear-gradient(90deg,var(--brand),var(--brand-2));width:${progress}%;transition:width 0.4s;"></div>`;
+    practiceContainer.appendChild(progressWrap);
+
+    const listenCard = document.createElement('div');
+    listenCard.className = 'fitb-card';
+
+    // Counter
+    const counter = document.createElement('div');
+    counter.style.cssText = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-soft);margin-bottom:14px;text-align:center;';
+    counter.textContent = `${_listenIndex + 1} / ${total}`;
+    listenCard.appendChild(counter);
+
+    // First-letter hint (hidden until used)
+    const hintLine = document.createElement('div');
+    hintLine.style.cssText = 'font-size:12px;color:var(--text-soft);margin-bottom:10px;text-align:center;visibility:hidden;';
+    hintLine.textContent = `Hint: starts with "${word.text[0].toUpperCase()}"`;
+    listenCard.appendChild(hintLine);
+
+    // Speaker — auto-plays once when the card renders, replayable on demand.
+    // The word itself is never shown anywhere on this card.
+    const speakerWrap = document.createElement('div');
+    speakerWrap.style.cssText = 'display:flex;justify-content:center;margin-bottom:20px;';
+    speakerWrap.appendChild(createSpeakerButton(word.text, analysis.audioBase64, 'Listen'));
+    listenCard.appendChild(speakerWrap);
+    speakText(word.text, analysis.audioBase64);
+
+    // Answer input
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Type what you hear…';
+    input.className = 'fitb-input';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    listenCard.appendChild(input);
+
+    // Feedback line
+    const feedback = document.createElement('div');
+    feedback.className = 'fitb-feedback';
+    listenCard.appendChild(feedback);
+
+    // Reveal area (definition + translation, shown after answering)
+    const revealDiv = document.createElement('div');
+    revealDiv.className = 'fitb-reveal';
+    revealDiv.style.display = 'none';
+    listenCard.appendChild(revealDiv);
+
+    // Button row
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:10px;justify-content:center;flex-wrap:wrap;';
+
+    const checkBtn = document.createElement('button');
+    checkBtn.className = 'btn-primary';
+    checkBtn.style.cssText = 'padding:10px 28px;font-size:14px;';
+    checkBtn.textContent = 'Check';
+
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'btn-ghost';
+    nextBtn.style.cssText = 'padding:10px 20px;font-size:14px;display:none;';
+    nextBtn.textContent = 'Next →';
+    nextBtn.onclick = () => { _listenIndex++; _showNextListen(); };
+
+    const skipBtn = document.createElement('button');
+    skipBtn.style.cssText = 'padding:10px 16px;font-size:13px;background:none;border:1px solid var(--border);border-radius:10px;color:var(--text-muted);cursor:pointer;font-family:inherit;';
+    skipBtn.textContent = 'Skip';
+    skipBtn.onclick = () => { _listenIndex++; _showNextListen(); };
+
+    const hintBtn = document.createElement('button');
+    hintBtn.style.cssText = 'padding:8px 14px;font-size:12px;background:none;border:1px solid var(--border);border-radius:8px;color:var(--text-soft);cursor:pointer;font-family:inherit;';
+    hintBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Hint';
+    hintBtn.onclick = () => { hintLine.style.visibility = 'visible'; hintBtn.style.display = 'none'; };
+
+    function checkAnswer() {
+      if (answered) return;
+      const userAns = input.value.trim();
+      if (!userAns) return;
+
+      answered = true;
+      input.disabled = true;
+      checkBtn.style.display = 'none';
+      skipBtn.style.display  = 'none';
+      hintBtn.style.display  = 'none';
+      nextBtn.style.display  = '';
+
+      const norm      = s => s.toLowerCase().trim();
+      const isCorrect = norm(userAns) === norm(word.text);
+
+      if (isCorrect) {
+        input.classList.add('correct');
+        feedback.innerHTML = `<span style="color:#16a34a;">✓ Correct!</span>`;
+        _listenCorrect.push(word);
+      } else {
+        input.classList.add('wrong');
+        feedback.innerHTML = `<span style="color:#ef4444;">✗ The answer was <strong>${escapeHtml(word.text)}</strong></span>`;
+        _listenWrong.push(word);
+      }
+
+      revealDiv.style.display = 'block';
+      revealDiv.innerHTML = analysis.translation
+        ? `<span style="color:var(--brand);font-weight:600;">${escapeHtml(analysis.translation)}</span> — ${escapeHtml(analysis.definitionTranslated || analysis.definition || '')}`
+        : escapeHtml(analysis.definition || '');
+    }
+
+    checkBtn.onclick = checkAnswer;
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') checkAnswer(); });
+
+    btnRow.appendChild(checkBtn);
+    btnRow.appendChild(nextBtn);
+    btnRow.appendChild(skipBtn);
+    listenCard.appendChild(btnRow);
+
+    const hintRow = document.createElement('div');
+    hintRow.style.cssText = 'text-align:center;margin-top:12px;';
+    hintRow.appendChild(hintBtn);
+    listenCard.appendChild(hintRow);
+
+    practiceContainer.appendChild(listenCard);
     input.focus();
   }
 

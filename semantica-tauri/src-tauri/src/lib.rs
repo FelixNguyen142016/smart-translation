@@ -12,7 +12,8 @@ use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
-use tauri_plugin_global_shortcut::ShortcutState;
+use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
 
 const SEARCH_W: f64 = 520.0;
 const SEARCH_H: f64 = 62.0;
@@ -246,6 +247,46 @@ fn show_translate_popup(app: &AppHandle, word: &str, saved: Option<Value>) {
     }
 }
 
+/// Cmd/Ctrl+Shift+E — quick translate: read whatever text is currently on the
+/// system clipboard (the user is expected to have just highlighted a word or
+/// short phrase in any app and copied it) and open the translate popup for it
+/// directly, skipping the search bar entirely. Mirrors the old Electron
+/// Cmd/Ctrl+Shift+T clipboard-translate hotkey (`desktop/main.js`), including
+/// its length/word-count sanity check so an accidental large clipboard
+/// selection (a paragraph, a whole page) doesn't get sent as a "word" lookup.
+///
+/// Spawned on its own OS thread rather than run inline in the shortcut event
+/// handler: Tauri's own docs (see the `search_word`/`show_word_of_day` doc
+/// comments above) warn that `WebviewWindowBuilder::build()` — called deep
+/// inside `show_translate_popup` — deadlocks or silently misbehaves on
+/// Windows when invoked synchronously from an event handler such as this
+/// global shortcut callback.
+fn quick_translate_from_clipboard(app: AppHandle) {
+    std::thread::spawn(move || {
+        let Ok(raw) = app.clipboard().read_text() else { return };
+        let word = raw.trim();
+        if word.is_empty() || word.chars().count() > 80 || word.split_whitespace().count() > 6 {
+            return;
+        }
+        let word = word.to_string();
+        let needle = word.to_lowercase();
+        let state = app.state::<AppState>();
+        let saved = state
+            .word_cache
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|w| {
+                w.get("text")
+                    .and_then(Value::as_str)
+                    .map(|t| t.to_lowercase() == needle)
+                    .unwrap_or(false)
+            })
+            .cloned();
+        show_translate_popup(&app, &word, saved);
+    });
+}
+
 /// Popup near the cursor, flipped away from screen edges (mirrors the Electron math).
 fn popup_position(app: &AppHandle) -> (f64, f64) {
     let cursor = app
@@ -331,19 +372,32 @@ fn show_search_bar(app: &AppHandle, anchor: Option<PhysicalPosition<f64>>) {
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
-        .plugin(
+        .plugin({
+            // Cmd/Ctrl+Shift+D — quick search bar (replaces the conflicting
+            // Ctrl+Shift+F). Cmd/Ctrl+Shift+E — quick translate of whatever's
+            // on the clipboard (revives the old Cmd+Shift+T clipboard-
+            // translate hotkey under a new, non-conflicting binding). Parsed
+            // once here and moved into the handler closure below, which
+            // matches the shortcut it's given against these by value instead
+            // of re-parsing a string on every keypress.
+            let search_shortcut: Shortcut = "CommandOrControl+Shift+D".parse().unwrap();
+            let translate_shortcut: Shortcut = "CommandOrControl+Shift+E".parse().unwrap();
             tauri_plugin_global_shortcut::Builder::new()
-                // Cmd/Ctrl+Shift+D — replaces the conflicting Ctrl+Shift+F.
-                // The old Cmd+Shift+T translate shortcut is removed on purpose.
-                .with_shortcuts(["CommandOrControl+Shift+D"])
+                .with_shortcuts([search_shortcut, translate_shortcut])
                 .expect("invalid shortcut definition")
-                .with_handler(|app, _shortcut, event| {
-                    if event.state == ShortcutState::Pressed {
+                .with_handler(move |app, shortcut, event| {
+                    if event.state != ShortcutState::Pressed {
+                        return;
+                    }
+                    if shortcut == &search_shortcut {
                         show_search_bar(app, None);
+                    } else if shortcut == &translate_shortcut {
+                        quick_translate_from_clipboard(app.clone());
                     }
                 })
-                .build(),
-        )
+                .build()
+        })
+        .plugin(tauri_plugin_clipboard_manager::init())
         // Start Semantica at login (background app, like Grammarly)
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,

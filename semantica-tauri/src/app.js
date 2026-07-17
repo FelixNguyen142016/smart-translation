@@ -6,7 +6,9 @@ import { getWords, deleteWord, updateWord, saveWord, getSettings, saveSettings }
 import { initGame } from './game-controller.js';
 import { applyTheme, applyHueTheme, VISUAL_PRESET_GROUPS, getVisualPreset, applyVisualPreset } from './theme.js';
 import { nextLearningState } from './game-engine.js';
+import { fsrs, Rating, State as FsrsState, createEmptyCard } from './fsrs-vendor.js';
 import { escapeHtml } from './dom-utils.js';
+import { speakText, createSpeakerButton } from './audio-utils.js';
 import {
   loadVocab,
   apiAnalyzeText,
@@ -91,38 +93,10 @@ function showLoginPage() {
   app.style.display = 'none';
 }
 
-// ─── Speak word — Google TTS audio if cached, Web Speech API as fallback ────────
-function speakText(word, audioBase64) {
-  if (!word) return;
-
-  if (audioBase64) {
-    try {
-      const audio = new Audio(`data:audio/mp3;base64,${audioBase64}`);
-      audio.play();
-      return;
-    } catch (_) { /* fall through to Web Speech */ }
-  }
-
-  if (!window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(word);
-  window.speechSynthesis.speak(utterance);
-}
-
-// ─── Reusable "speaker" button (icon circle + label) ────────────────────────
-// Same markup/behavior used across the vocab list, the review flashcard back,
-// and Listen and Write practice — centralized here to avoid drift across the
-// three call sites now that a third one exists.
-function createSpeakerButton(word, audioBase64, label = 'Play') {
-  const btn = document.createElement('button');
-  btn.style.cssText = 'display:inline-flex;align-items:center;gap:5px;color:var(--text-muted);background:none;border:none;cursor:pointer;font-size:11px;font-family:inherit;padding:0;transition:color 0.15s;';
-  btn.innerHTML = `<span style="width:22px;height:22px;border-radius:50%;background:linear-gradient(rgba(6,182,212,0.14),rgba(6,182,212,0.14)), var(--muted-bg);display:flex;align-items:center;justify-content:center;transition:background 0.15s;"><i data-lucide="volume-2" style="width:11px;height:11px;color:var(--brand);stroke-width:2.5;"></i></span><span>${escapeHtml(label)}</span>`;
-  btn.onmouseenter = () => { btn.style.color = 'var(--brand)'; btn.querySelector('span').style.background = 'linear-gradient(rgba(6,182,212,0.26),rgba(6,182,212,0.26)), var(--muted-bg)'; };
-  btn.onmouseleave = () => { btn.style.color = 'var(--text-muted)'; btn.querySelector('span').style.background = 'linear-gradient(rgba(6,182,212,0.14),rgba(6,182,212,0.14)), var(--muted-bg)'; };
-  btn.onclick = (e) => { e.stopPropagation(); speakText(word, audioBase64); };
-  if (window.lucide) window.lucide.createIcons({ nodes: [btn] });
-  return btn;
-}
+// speakText() / createSpeakerButton() moved to audio-utils.js (imported
+// above) so game-controller.js can reuse the same TTS-with-fallback logic
+// for Quick Ear mode without a circular import (app.js imports initGame
+// from game-controller.js). Behavior is unchanged.
 
 document.addEventListener('DOMContentLoaded', async () => {
 
@@ -2009,18 +1983,66 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ─── SRS (Spaced Repetition) helpers ─────────────────────────────────────────
+  // Backed by ts-fsrs (vendored in fsrs-vendor.js — see that file's header for
+  // why it's vendored rather than CDN-imported). This replaced a hand-rolled
+  // SM-2-lite scheduler (fixed ease-factor multipliers) with the real FSRS
+  // algorithm, which models each word's individual memory stability/difficulty
+  // instead of one ease factor nudged by +/-0.1-0.2 per review.
+  //
+  // Deliberately scoped to Review Mode only — Game tab modes (Race/Survival/
+  // Mission) keep using game-engine.js's separate learningState bucket
+  // heuristic and never touch word.srs. Playing a game is "extra practice";
+  // Review Mode remains the sole source of truth for spaced-repetition due
+  // dates, exactly as before this change.
+  const fsrsScheduler = fsrs();
 
-  /** Update SRS fields after a review. grade: 0=hard, 1=good, 2=easy */
-  function srsUpdate(word, grade) {
-    const now = Date.now();
-    const s   = word.srs || {};
-    const ef  = s.easeFactor ?? 2.5;
-    const iv  = s.interval   ?? 1;
-    let newIv, newEf;
-    if      (grade === 0) { newIv = 1; newEf = Math.max(1.3, ef - 0.2); }
-    else if (grade === 1) { newIv = Math.max(1, Math.ceil(iv * 1.5)); newEf = ef; }
-    else                  { newIv = Math.ceil(iv * ef); newEf = Math.min(3.0, ef + 0.1); }
-    return { interval: newIv, easeFactor: newEf, reviewCount: (s.reviewCount ?? 0) + 1, lastReviewed: now, dueDate: now + newIv * 86400000 };
+  /** True once a word has gone through at least one FSRS review (vs. never-reviewed or pre-migration legacy SM-2 data). */
+  function hasFsrsCard(word) {
+    return typeof word.srs?.stability === 'number';
+  }
+
+  /** Rebuild an ts-fsrs Card object from a word's persisted (plain-JSON) srs fields. */
+  function toFsrsCard(word) {
+    if (!hasFsrsCard(word)) return createEmptyCard(new Date());
+    const s = word.srs;
+    return {
+      due: new Date(s.dueDate),
+      stability: s.stability,
+      difficulty: s.difficulty,
+      elapsed_days: s.elapsedDays ?? 0,
+      scheduled_days: s.scheduledDays ?? 0,
+      reps: s.reviewCount ?? 0,
+      lapses: s.lapses ?? 0,
+      learning_steps: s.learningSteps ?? 0,
+      state: s.fsrsState ?? FsrsState.New,
+      last_review: s.lastReviewed ? new Date(s.lastReviewed) : void 0,
+    };
+  }
+
+  /**
+   * Update SRS fields after a review.
+   * @param {Object} word
+   * @param {number} rating - ts-fsrs Rating enum value (Rating.Again=1, Hard=2, Good=3, Easy=4)
+   */
+  function srsUpdate(word, rating) {
+    const now = new Date();
+    const card = toFsrsCard(word);
+    const { card: next } = fsrsScheduler.next(card, now, rating);
+    return {
+      dueDate: next.due.getTime(),
+      stability: next.stability,
+      difficulty: next.difficulty,
+      elapsedDays: next.elapsed_days,
+      scheduledDays: next.scheduled_days,
+      reviewCount: next.reps,
+      lapses: next.lapses,
+      learningSteps: next.learning_steps,
+      fsrsState: next.state,
+      lastReviewed: next.last_review ? next.last_review.getTime() : now.getTime(),
+      // Persisted so the "Struggling"/"Mastered" FSRS filters can look at what
+      // the user actually pressed last, not just derive it from stability/state.
+      lastRating: rating,
+    };
   }
 
   /** Returns 'due' | 'soon' | 'future' | 'new' */
@@ -2043,6 +2065,74 @@ document.addEventListener('DOMContentLoaded', async () => {
     return { label: `In ${days} days`, color: '#22c55e' };
   }
 
+  // ─── FSRS study filters (shared by Review + Practice tabs) ──────────────────
+  // Stability (ts-fsrs's `stability` field) is roughly "days until recall
+  // probability drops to ~90% without another review" — these thresholds are
+  // a reasonable day-scale default (Anki's own young/mature boundary is a
+  // similar ~21-day mark) and can be tuned if they don't feel right in practice.
+  const STRUGGLING_STABILITY_MAX = 7;   // forgets within a week = struggling
+  const MASTERED_STABILITY_MIN   = 21;  // holds for 3+ weeks = mastered
+
+  /**
+   * The 5 filters exposed as pills on both the Review and Practice tabs.
+   * Each `predicate` takes a word and returns whether it belongs in that
+   * filter's queue. Order here is also display order, with 'due' as the
+   * default selected on entry to either tab.
+   */
+  const FSRS_FILTERS = [
+    {
+      id: 'due', label: 'Due Today',
+      predicate: w => !!w.srs?.dueDate && w.srs.dueDate <= Date.now(),
+    },
+    {
+      id: 'new', label: 'New Words',
+      predicate: w => !hasFsrsCard(w) || w.srs?.fsrsState === FsrsState.New,
+    },
+    {
+      id: 'struggling', label: 'Struggling',
+      predicate: w =>
+        w.srs?.lastRating === Rating.Again || w.srs?.lastRating === Rating.Hard ||
+        (hasFsrsCard(w) && w.srs.stability < STRUGGLING_STABILITY_MAX) ||
+        w.srs?.fsrsState === FsrsState.Relearning,
+    },
+    {
+      id: 'mastered', label: 'Mastered',
+      predicate: w =>
+        (hasFsrsCard(w) && w.srs.stability >= MASTERED_STABILITY_MIN) ||
+        w.srs?.lastRating === Rating.Easy,
+    },
+    {
+      id: 'all', label: 'All Words',
+      predicate: () => true,
+    },
+  ];
+
+  function getFsrsFilter(id) {
+    return FSRS_FILTERS.find(f => f.id === id) ?? FSRS_FILTERS[0];
+  }
+
+  /**
+   * Render a row of FSRS filter pills into `containerId`, calling
+   * `onSelect(filterId)` when clicked. Shared markup/behavior for both the
+   * Review strip (alongside its overdue/due-today/upcoming/new counts) and
+   * the Practice strip (which has no such counts, just the pills).
+   */
+  function renderFsrsFilterPills(containerId, words, activeId, onSelect) {
+    const wrap = document.getElementById(containerId);
+    if (!wrap) return;
+    wrap.innerHTML = FSRS_FILTERS.map(f => {
+      const count  = words.filter(f.predicate).length;
+      const active = f.id === activeId;
+      const style  = active
+        ? 'background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;border:none;'
+        : 'background:var(--brand-soft);color:var(--brand);border:1px solid var(--brand-border);';
+      return `<button class="fsrs-filter-btn" data-filter="${f.id}" style="font-size:12px;padding:5px 12px;border-radius:8px;cursor:pointer;font-weight:600;font-family:inherit;${style}">${escapeHtml(f.label)} (${count})</button>`;
+    }).join('');
+    wrap.querySelectorAll('.fsrs-filter-btn').forEach(btn => {
+      btn.onclick = () => onSelect(btn.dataset.filter);
+    });
+  }
+
   // ─── Review Mode ─────────────────────────────────────────────────────────────
   let reviewQueue        = [];
   let currentReviewIndex = 0;
@@ -2051,35 +2141,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   const noReviewState    = document.getElementById('no-review');
 
   let _reviewAllWords = [];
+  let _activeReviewFilter = 'due'; // "Due Today" is the spec'd default
 
   async function startReviewSession(prefiltered = null) {
     _reviewAllWords = prefiltered ?? await getWords();
-    _renderSrsStrip(_reviewAllWords);
-    _startQueue(_reviewAllWords, 'sorted');
+    _activeReviewFilter = 'due';
+    _renderSrsStrip();
+    _applyReviewFilter();
   }
 
-  /** Sort and start the review queue. mode: 'sorted' (due first) | 'due' (due/soon/new only) */
-  function _startQueue(words, mode) {
+  /** Rebuild + start the review queue from _reviewAllWords using the active FSRS filter. */
+  function _applyReviewFilter() {
     const order = { due: 0, soon: 1, new: 2, future: 3 };
-    if (mode === 'due') {
-      reviewQueue = words.filter(w => srsStatus(w) !== 'future');
-    } else {
-      reviewQueue = [...words].sort((a, b) => (order[srsStatus(a)] ?? 2) - (order[srsStatus(b)] ?? 2));
-    }
+    const filtered = _reviewAllWords.filter(getFsrsFilter(_activeReviewFilter).predicate);
+    // Within whatever the filter selected, still surface the most overdue
+    // words first — same ordering the old "sorted"/"due" modes both used.
+    reviewQueue = [...filtered].sort((a, b) => (order[srsStatus(a)] ?? 2) - (order[srsStatus(b)] ?? 2));
     currentReviewIndex = 0;
     retryCount         = new Map();
     showNextCard();
   }
 
-  /** Render the SRS summary strip above the review cards */
-  function _renderSrsStrip(words) {
+  /** Render the SRS summary strip + FSRS filter pills above the review cards */
+  function _renderSrsStrip() {
     const strip = document.getElementById('srs-strip');
     if (!strip) return;
     const c = { due: 0, soon: 0, future: 0, new: 0 };
-    words.forEach(w => c[srsStatus(w)]++);
-    const dueTotal = c.due + c.soon;
-    const isDark   = document.documentElement.classList.contains('dark');
-    const bg       = isDark ? 'rgba(30,41,59,0.90)' : 'rgba(255,255,255,0.92)';
+    _reviewAllWords.forEach(w => c[srsStatus(w)]++);
+    const isDark = document.documentElement.classList.contains('dark');
+    const bg     = isDark ? 'rgba(30,41,59,0.90)' : 'rgba(255,255,255,0.92)';
     strip.innerHTML = `
       <div class="srs-strip-inner" style="background:${bg};">
         <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;font-weight:600;">
@@ -2088,13 +2178,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           <span style="color:#22c55e;display:flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;"></span>Upcoming: ${c.future}</span>
           <span style="color:#94a3b8;display:flex;align-items:center;gap:4px;"><span style="width:7px;height:7px;border-radius:50%;background:#94a3b8;display:inline-block;"></span>New: ${c.new}</span>
         </div>
-        <div style="display:flex;gap:8px;">
-          <button id="srs-due-btn" style="font-size:12px;padding:5px 12px;border-radius:8px;background:var(--brand-soft);color:var(--brand);border:1px solid var(--brand-border);cursor:pointer;font-weight:600;font-family:inherit;">Due (${dueTotal})</button>
-          <button id="srs-all-btn" style="font-size:12px;padding:5px 12px;border-radius:8px;background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;border:none;cursor:pointer;font-weight:600;font-family:inherit;">All (${words.length})</button>
-        </div>
+        <div id="srs-filter-pills" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
       </div>`;
-    document.getElementById('srs-due-btn').onclick = () => _startQueue(words, 'due');
-    document.getElementById('srs-all-btn').onclick  = () => _startQueue(words, 'sorted');
+    renderFsrsFilterPills('srs-filter-pills', _reviewAllWords, _activeReviewFilter, (id) => {
+      _activeReviewFilter = id;
+      _renderSrsStrip();
+      _applyReviewFilter();
+    });
   }
 
   function showNextCard() {
@@ -2190,10 +2280,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     controls.style.opacity = '0';
     controls.style.pointerEvents = 'none';
     controls.style.transition = 'opacity 0.3s ease 0.25s';
+    // Standard FSRS 4-point grading scale (Again/Hard/Good/Easy), mapped
+    // directly to the ts-fsrs Rating enum so no scheduling precision is left
+    // on the table — a 3-button Hard/Good/Easy scale can't distinguish
+    // "forgot completely" from "remembered with real difficulty", which are
+    // very different signals for FSRS's stability/difficulty model.
     controls.innerHTML = `
-      <button class="review-btn btn-hard" style="flex:1;padding:12px;border-radius:14px;border:none;font-weight:700;font-size:13px;cursor:pointer;background:linear-gradient(135deg,#ef4444,#f43f5e);color:#fff;box-shadow:0 4px 12px rgba(239,68,68,0.25);transition:transform 0.1s,box-shadow 0.15s;display:flex;align-items:center;justify-content:center;gap:6px;font-family:inherit;">✕ Hard / Again</button>
-      <button class="review-btn btn-good" style="flex:1;padding:12px;border-radius:14px;border:none;font-weight:700;font-size:13px;cursor:pointer;background:linear-gradient(135deg,#10b981,#22c55e);color:#fff;box-shadow:0 4px 12px rgba(16,185,129,0.25);transition:transform 0.1s,box-shadow 0.15s;display:flex;align-items:center;justify-content:center;gap:6px;font-family:inherit;">✓ Good / Next</button>
-      <button class="review-btn btn-easy" style="flex:1;padding:12px;border-radius:14px;border:none;font-weight:700;font-size:13px;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 4px 12px rgba(99,102,241,0.25);transition:transform 0.1s,box-shadow 0.15s;display:flex;align-items:center;justify-content:center;gap:6px;font-family:inherit;">✦ Easy / Mastered</button>
+      <button class="review-btn btn-again" style="flex:1;padding:11px 6px;border-radius:14px;border:none;font-weight:700;font-size:12px;cursor:pointer;background:linear-gradient(135deg,#ef4444,#f43f5e);color:#fff;box-shadow:0 4px 12px rgba(239,68,68,0.25);transition:transform 0.1s,box-shadow 0.15s;display:flex;align-items:center;justify-content:center;gap:5px;font-family:inherit;">✕ Again</button>
+      <button class="review-btn btn-hard" style="flex:1;padding:11px 6px;border-radius:14px;border:none;font-weight:700;font-size:12px;cursor:pointer;background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;box-shadow:0 4px 12px rgba(245,158,11,0.25);transition:transform 0.1s,box-shadow 0.15s;display:flex;align-items:center;justify-content:center;gap:5px;font-family:inherit;">− Hard</button>
+      <button class="review-btn btn-good" style="flex:1;padding:11px 6px;border-radius:14px;border:none;font-weight:700;font-size:12px;cursor:pointer;background:linear-gradient(135deg,#10b981,#22c55e);color:#fff;box-shadow:0 4px 12px rgba(16,185,129,0.25);transition:transform 0.1s,box-shadow 0.15s;display:flex;align-items:center;justify-content:center;gap:5px;font-family:inherit;">✓ Good</button>
+      <button class="review-btn btn-easy" style="flex:1;padding:11px 6px;border-radius:14px;border:none;font-weight:700;font-size:12px;cursor:pointer;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;box-shadow:0 4px 12px rgba(99,102,241,0.25);transition:transform 0.1s,box-shadow 0.15s;display:flex;align-items:center;justify-content:center;gap:5px;font-family:inherit;">✦ Easy</button>
     `;
     reviewContainer.appendChild(controls);
 
@@ -2208,16 +2304,30 @@ document.addEventListener('DOMContentLoaded', async () => {
       speakText(word.text, word.aiAnalysis?.audioBase64);
     });
 
-    const btnHard = controls.querySelector('.btn-hard');
-    const btnGood = controls.querySelector('.btn-good');
-    const btnEasy = controls.querySelector('.btn-easy');
+    const btnAgain = controls.querySelector('.btn-again');
+    const btnHard  = controls.querySelector('.btn-hard');
+    const btnGood  = controls.querySelector('.btn-good');
+    const btnEasy  = controls.querySelector('.btn-easy');
 
-    btnHard.onclick = async (e) => {
+    // Again — forgot completely; full relearn, same as the old 3-button "Hard".
+    btnAgain.onclick = async (e) => {
       e.stopPropagation();
       const count = (retryCount.get(word.text) || 0) + 1;
       retryCount.set(word.text, count);
       if (count <= 2) reviewQueue.push(word);
-      await updateWord(word.text, { learningState: 'relearn', srs: srsUpdate(word, 0) });
+      await updateWord(word.text, { learningState: 'relearn', srs: srsUpdate(word, Rating.Again) });
+      currentReviewIndex++;
+      showNextCard();
+    };
+
+    // Hard — remembered, but with real difficulty. Reuses the existing
+    // hintUsed=true branch in nextLearningState (game-engine.js is untouched;
+    // this just calls it with different result flags), which lands on
+    // 'learning' rather than fully resetting to 'relearn'.
+    btnHard.onclick = async (e) => {
+      e.stopPropagation();
+      const newState = nextLearningState(word, { correct: true, hintUsed: true, skipped: false });
+      await updateWord(word.text, { learningState: newState, srs: srsUpdate(word, Rating.Hard) });
       currentReviewIndex++;
       showNextCard();
     };
@@ -2225,7 +2335,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnGood.onclick = async (e) => {
       e.stopPropagation();
       const newState = nextLearningState(word, { correct: true, hintUsed: false, skipped: false });
-      await updateWord(word.text, { learningState: newState, srs: srsUpdate(word, 1) });
+      await updateWord(word.text, { learningState: newState, srs: srsUpdate(word, Rating.Good) });
       currentReviewIndex++;
       showNextCard();
     };
@@ -2234,18 +2344,46 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnEasy.onclick = async (e) => {
       e.stopPropagation();
       retryCount.delete(word.text);
-      await updateWord(word.text, { learningState: 'known', srs: srsUpdate(word, 2) });
+      await updateWord(word.text, { learningState: 'known', srs: srsUpdate(word, Rating.Easy) });
       currentReviewIndex++;
       showNextCard();
     };
 
     // Visual press feedback for all buttons
-    [btnHard, btnGood, btnEasy].forEach(btn => {
+    [btnAgain, btnHard, btnGood, btnEasy].forEach(btn => {
       btn.addEventListener('mousedown', () => { btn.style.transform = 'scale(0.96)'; btn.style.boxShadow = 'none'; });
       btn.addEventListener('mouseup',   () => { btn.style.transform = ''; btn.style.boxShadow = ''; });
       btn.addEventListener('mouseleave',() => { btn.style.transform = ''; btn.style.boxShadow = ''; });
     });
   }
+
+  // ─── Review Mode: keyboard grading (1=Again, 2=Hard, 3=Good, 4=Easy) ────────
+  // A single module-level listener rather than binding per-button: the 4
+  // grading buttons are recreated from scratch on every showNextCard() call
+  // (reviewContainer.innerHTML is cleared each render), so anything bound
+  // directly to a button instance would go stale the moment the next card
+  // renders. Querying .review-controls fresh on every keypress always finds
+  // whichever card is currently showing.
+  //
+  // Guarded on: the Review tab being the active top-level view (so pressing
+  // 1-4 elsewhere in the app — e.g. typing a word containing a digit — is
+  // never intercepted), no text input/textarea currently focused (defensive,
+  // since Review's card itself has no text inputs), and the card actually
+  // being flipped (.review-controls only becomes interactive — pointer-
+  // events:auto — after the flip; before that, 1-4 should do nothing, same
+  // as clicking the invisible buttons would do nothing).
+  document.addEventListener('keydown', (e) => {
+    if (!['1', '2', '3', '4'].includes(e.key)) return;
+    if (!document.getElementById('review-view')?.classList.contains('active')) return;
+    const activeTag = document.activeElement?.tagName;
+    if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+
+    const controls = reviewContainer.querySelector('.review-controls');
+    if (!controls || controls.style.pointerEvents !== 'auto') return;
+
+    const selector = { '1': '.btn-again', '2': '.btn-hard', '3': '.btn-good', '4': '.btn-easy' }[e.key];
+    controls.querySelector(selector)?.click();
+  });
 
   // ─── Practice: mode selection ────────────────────────────────────────────────
   // Two independent modes share the #practice-container render target, switched
@@ -2273,29 +2411,94 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // ─── Practice: Read and Write (fill-in-the-blank) ────────────────────────────
+  // ─── Practice: shared FSRS filter strip (both Read-and-Write and Listen-and-
+  // Write draw from the same filtered word list — see FSRS_FILTERS above,
+  // the same 5 filters/predicates the Review tab uses) ─────────────────────
+  let _activePracticeMode   = 'read-write'; // 'read-write' | 'listen-write'
+  let _activePracticeFilter = 'all';
+  let _practiceAllWords     = [];
+  // Bumped on every renderPractice()/renderListenWrite() call so a stale
+  // getWords() resolution (double-clicked mode card, rapid "Practice Again")
+  // can detect it's no longer the latest entry and bail instead of clobbering
+  // a newer render.
+  let _practiceEntryToken   = 0;
 
-  let _practiceQueue   = [];
-  let _practiceIndex   = 0;
-  let _practiceCorrect = []; // words answered correctly
-  let _practiceWrong   = []; // words answered incorrectly
+  /** Rebuild + start whichever practice mode is active, from _practiceAllWords filtered by the active FSRS filter. */
+  function _applyPracticeFilter() {
+    const filtered = _practiceAllWords.filter(getFsrsFilter(_activePracticeFilter).predicate);
+    if (_activePracticeMode === 'listen-write') _buildListenQueue(filtered);
+    else _buildFitbQueue(filtered);
+  }
+
+  function _renderPracticeFilterStrip() {
+    const strip = document.getElementById('practice-filter-strip');
+    if (!strip) return;
+    const isDark = document.documentElement.classList.contains('dark');
+    const bg     = isDark ? 'rgba(30,41,59,0.90)' : 'rgba(255,255,255,0.92)';
+    strip.innerHTML = `
+      <div class="srs-strip-inner" style="background:${bg};justify-content:flex-end;">
+        <div id="practice-filter-pills" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+      </div>`;
+    renderFsrsFilterPills('practice-filter-pills', _practiceAllWords, _activePracticeFilter, (id) => {
+      _activePracticeFilter = id;
+      _renderPracticeFilterStrip();
+      _applyPracticeFilter();
+    });
+  }
+
+  // ─── Practice: shared render shell for both Read-and-Write and Listen-and-
+  // Write ─────────────────────────────────────────────────────────────────
+  // Both modes render a near-identical card (progress bar, counter, first-
+  // letter hint, answer input, feedback line, reveal block, Check/Skip/
+  // Hint/Next buttons, Enter-to-submit, and the same session-complete
+  // summary) around a small mode-specific body (FITB's blanked sentence +
+  // toggle button vs Listen's speaker button) and a mode-specific notion of
+  // "the expected answer" (FITB's sentence-form-aware target word vs
+  // Listen's bare word.text). _showNextPracticeCard() below is that shared
+  // shell; _fitbState/_listenState hold each mode's own queue/index/score
+  // arrays (kept separate so switching modes mid-session never cross-
+  // contaminates either mode's score).
+  function _shuffle(arr) {
+    const result = arr.slice();
+    for (let i = result.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [result[i], result[j]] = [result[j], result[i]];
+    }
+    return result;
+  }
+
   const practiceContainer = document.getElementById('practice-container');
 
+  // ─── Practice: Read and Write (fill-in-the-blank) ────────────────────────────
+
+  const _fitbState = { queue: [], index: 0, correct: [], wrong: [] };
+
+  // Entry point from the mode-select screen / "Practice Again" — refetches
+  // the word list and resets to "All Words" (unlike Review, Practice has no
+  // scheduling, so defaulting to "Due Today" would leave new/never-reviewed
+  // words unpracticeable — the filter pills still let the user narrow down
+  // manually from here).
   async function renderPractice() {
+    _activePracticeMode = 'read-write';
+    const token = ++_practiceEntryToken;
     const words = await getWords();
+    if (token !== _practiceEntryToken) return; // superseded by a newer entry
+    _practiceAllWords = words;
+    _activePracticeFilter = 'all';
+    _renderPracticeFilterStrip();
+    _applyPracticeFilter();
+  }
+
+  /** Build the fill-in-the-blank queue from a (already FSRS-filtered) word list and start it. */
+  function _buildFitbQueue(words) {
     // Keep words with at least one usable sentence
-    _practiceQueue = words.filter(w =>
+    _fitbState.queue = _shuffle(words.filter(w =>
       (w.aiAnalysis?.exampleSentence?.length > 10) || (w.context?.length > 10)
-    );
-    // Fisher-Yates shuffle
-    for (let i = _practiceQueue.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [_practiceQueue[i], _practiceQueue[j]] = [_practiceQueue[j], _practiceQueue[i]];
-    }
-    _practiceIndex   = 0;
-    _practiceCorrect = [];
-    _practiceWrong   = [];
-    _showNextFitb();
+    ));
+    _fitbState.index   = 0;
+    _fitbState.correct = [];
+    _fitbState.wrong   = [];
+    _showNextPracticeCard(_fitbState, FITB_CONFIG);
   }
 
   /** Replace the target word in a sentence with a blank. Returns null if word not found. */
@@ -2306,24 +2509,78 @@ document.addEventListener('DOMContentLoaded', async () => {
     return blanked === sentence ? null : blanked;
   }
 
-  function _showNextFitb() {
+  const FITB_CONFIG = {
+    emptyIcon: '✍️',
+    emptyTitle: 'No sentences yet',
+    emptyMessage: 'Look up words to get AI example sentences, then come back to practice.',
+    inputPlaceholder: 'Type the missing word…',
+    restart: () => renderPractice(),
+    // Sentence display + "try another sentence" toggle. Returns
+    // getExpectedAnswer(), used by the shared checkAnswer() below to find
+    // the actual word form used in the sentence (e.g. a conjugated form),
+    // not just word.text verbatim.
+    renderBody(card, word, analysis) {
+      const sources = [];
+      if (analysis.exampleSentence?.length > 10) sources.push({ text: analysis.exampleSentence, label: 'Example' });
+      if (word.context?.length > 10 && word.context !== analysis.exampleSentence) sources.push({ text: word.context, label: 'Context' });
+      let srcIdx = 0;
+
+      const sentenceDiv = document.createElement('div');
+      sentenceDiv.style.cssText = 'font-size:17px;line-height:1.7;color:var(--text-main);font-style:italic;margin-bottom:20px;text-align:center;';
+
+      function renderSentence() {
+        const { text, label } = sources[srcIdx] ?? { text: `Fill in: "${word.text}"`, label: '' };
+        const blanked = _blankSentence(text, word.text) ?? text;
+        const labelHtml = sources.length > 1 ? `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-soft);margin-bottom:8px;">${label} sentence</div>` : '';
+        sentenceDiv.innerHTML = `${labelHtml}"${blanked.replace(/_______/g, '<span style="display:inline-block;min-width:80px;border-bottom:3px solid var(--brand);">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>')}"`;
+      }
+      renderSentence();
+      card.appendChild(sentenceDiv);
+
+      if (sources.length > 1) {
+        const toggleBtn = document.createElement('button');
+        toggleBtn.style.cssText = 'display:block;margin:0 auto 14px;font-size:11px;background:none;border:1px solid var(--border);border-radius:8px;padding:4px 10px;color:var(--text-muted);cursor:pointer;font-family:inherit;';
+        toggleBtn.textContent = 'Try another sentence';
+        toggleBtn.onclick = () => { srcIdx = (srcIdx + 1) % sources.length; renderSentence(); };
+        card.appendChild(toggleBtn);
+      }
+
+      return {
+        getExpectedAnswer() {
+          const { text: sentText } = sources[srcIdx] ?? { text: '' };
+          const escaped   = word.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const sentMatch = sentText.match(new RegExp(`\\b(${escaped}\\w*)\\b`, 'i'));
+          return sentMatch?.[1] ?? word.text;
+        },
+      };
+    },
+  };
+
+  /**
+   * Shared render shell for both Practice modes. `state` holds this mode's
+   * queue/index/correct/wrong; `config` supplies the mode-specific empty-
+   * state copy, restart handler, input placeholder, and renderBody() (which
+   * inserts whatever's mode-specific between the hint line and the answer
+   * input, and returns { getExpectedAnswer() } used by checkAnswer() below).
+   */
+  function _showNextPracticeCard(state, config) {
     practiceContainer.innerHTML = '';
 
-    if (_practiceQueue.length === 0) {
+    if (state.queue.length === 0) {
       practiceContainer.innerHTML = `
         <div style="text-align:center;color:var(--text-muted);padding:40px 0;">
-          <div style="font-size:48px;margin-bottom:12px;">✍️</div>
-          <h2>No sentences yet</h2>
-          <p style="font-size:14px;margin-bottom:16px;">Look up words to get AI example sentences, then come back to practice.</p>
+          <div style="font-size:48px;margin-bottom:12px;">${config.emptyIcon}</div>
+          <h2>${config.emptyTitle}</h2>
+          <p style="font-size:14px;margin-bottom:16px;">${config.emptyMessage}</p>
           <button class="btn-ghost" id="practice-back-modes-empty" style="padding:10px 20px;">← Back to modes</button>
         </div>`;
       document.getElementById('practice-back-modes-empty').onclick = showPracticeModeSelect;
       return;
     }
 
-    if (_practiceIndex >= _practiceQueue.length) {
-      const total   = _practiceCorrect.length + _practiceWrong.length;
-      const score   = total > 0 ? Math.round((_practiceCorrect.length / total) * 100) : 0;
+    if (state.index >= state.queue.length) {
+      const total = state.correct.length + state.wrong.length;
+      const score = total > 0 ? Math.round((state.correct.length / total) * 100) : 0;
 
       const wordList = (words, color, icon) => words.length === 0
         ? `<span style="color:var(--text-soft);font-size:13px;">None</span>`
@@ -2338,35 +2595,29 @@ document.addEventListener('DOMContentLoaded', async () => {
             <div style="font-size:36px;font-weight:700;background:linear-gradient(135deg,var(--brand),var(--brand-2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:20px;">${score}%</div>
 
             <div style="text-align:left;margin-bottom:16px;">
-              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#16a34a;margin-bottom:8px;">✓ Correct (${_practiceCorrect.length})</div>
-              <div style="display:flex;flex-wrap:wrap;gap:2px;">${wordList(_practiceCorrect, '#16a34a', '✓')}</div>
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#16a34a;margin-bottom:8px;">✓ Correct (${state.correct.length})</div>
+              <div style="display:flex;flex-wrap:wrap;gap:2px;">${wordList(state.correct, '#16a34a', '✓')}</div>
             </div>
 
             <div style="text-align:left;margin-bottom:24px;">
-              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#ef4444;margin-bottom:8px;">✗ Needs work (${_practiceWrong.length})</div>
-              <div style="display:flex;flex-wrap:wrap;gap:2px;">${wordList(_practiceWrong, '#ef4444', '✗')}</div>
+              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#ef4444;margin-bottom:8px;">✗ Needs work (${state.wrong.length})</div>
+              <div style="display:flex;flex-wrap:wrap;gap:2px;">${wordList(state.wrong, '#ef4444', '✗')}</div>
             </div>
 
             <button class="btn-primary" id="restart-practice" style="padding:10px 28px;">Practice Again</button>
             <button class="btn-ghost" id="practice-back-modes" style="padding:10px 20px;">← Back to modes</button>
           </div>
         </div>`;
-      document.getElementById('restart-practice').onclick = renderPractice;
+      document.getElementById('restart-practice').onclick = config.restart;
       document.getElementById('practice-back-modes').onclick = showPracticeModeSelect;
       return;
     }
 
-    const word     = _practiceQueue[_practiceIndex];
+    const word     = state.queue[state.index];
     const analysis = word.aiAnalysis || {};
-    const total    = _practiceQueue.length;
-    const progress = Math.round((_practiceIndex / total) * 100);
-
-    // Build sentence sources (AI example first, then original context)
-    const sources = [];
-    if (analysis.exampleSentence?.length > 10) sources.push({ text: analysis.exampleSentence, label: 'Example' });
-    if (word.context?.length > 10 && word.context !== analysis.exampleSentence) sources.push({ text: word.context, label: 'Context' });
-    let srcIdx = 0;
-    let answered = false;
+    const total    = state.queue.length;
+    const progress = Math.round((state.index / total) * 100);
+    let answered   = false;
 
     // Progress bar
     const progressWrap = document.createElement('div');
@@ -2374,62 +2625,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     progressWrap.innerHTML = `<div style="height:4px;border-radius:999px;background:linear-gradient(90deg,var(--brand),var(--brand-2));width:${progress}%;transition:width 0.4s;"></div>`;
     practiceContainer.appendChild(progressWrap);
 
-    const fitbCard = document.createElement('div');
-    fitbCard.className = 'fitb-card';
+    const card = document.createElement('div');
+    card.className = 'fitb-card';
 
     // Counter
     const counter = document.createElement('div');
     counter.style.cssText = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-soft);margin-bottom:14px;text-align:center;';
-    counter.textContent = `${_practiceIndex + 1} / ${total}`;
-    fitbCard.appendChild(counter);
+    counter.textContent = `${state.index + 1} / ${total}`;
+    card.appendChild(counter);
 
     // First-letter hint (hidden until used)
     const hintLine = document.createElement('div');
     hintLine.style.cssText = 'font-size:12px;color:var(--text-soft);margin-bottom:10px;text-align:center;visibility:hidden;';
     hintLine.textContent = `Hint: starts with "${word.text[0].toUpperCase()}"`;
-    fitbCard.appendChild(hintLine);
+    card.appendChild(hintLine);
 
-    // Sentence display
-    const sentenceDiv = document.createElement('div');
-    sentenceDiv.style.cssText = 'font-size:17px;line-height:1.7;color:var(--text-main);font-style:italic;margin-bottom:20px;text-align:center;';
-
-    function renderSentence() {
-      const { text, label } = sources[srcIdx] ?? { text: `Fill in: "${word.text}"`, label: '' };
-      const blanked = _blankSentence(text, word.text) ?? text;
-      const labelHtml = sources.length > 1 ? `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-soft);margin-bottom:8px;">${label} sentence</div>` : '';
-      sentenceDiv.innerHTML = `${labelHtml}"${blanked.replace(/_______/g, '<span style="display:inline-block;min-width:80px;border-bottom:3px solid var(--brand);">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>')}"`;
-    }
-    renderSentence();
-    fitbCard.appendChild(sentenceDiv);
-
-    // Toggle sentence button
-    if (sources.length > 1) {
-      const toggleBtn = document.createElement('button');
-      toggleBtn.style.cssText = 'display:block;margin:0 auto 14px;font-size:11px;background:none;border:1px solid var(--border);border-radius:8px;padding:4px 10px;color:var(--text-muted);cursor:pointer;font-family:inherit;';
-      toggleBtn.textContent = 'Try another sentence';
-      toggleBtn.onclick = () => { srcIdx = (srcIdx + 1) % sources.length; renderSentence(); };
-      fitbCard.appendChild(toggleBtn);
-    }
+    // Mode-specific body (FITB's sentence+toggle, Listen's speaker button)
+    const bodyApi = config.renderBody(card, word, analysis);
 
     // Answer input
     const input = document.createElement('input');
     input.type = 'text';
-    input.placeholder = 'Type the missing word…';
+    input.placeholder = config.inputPlaceholder;
     input.className = 'fitb-input';
     input.autocomplete = 'off';
     input.spellcheck = false;
-    fitbCard.appendChild(input);
+    card.appendChild(input);
 
     // Feedback line
     const feedback = document.createElement('div');
     feedback.className = 'fitb-feedback';
-    fitbCard.appendChild(feedback);
+    card.appendChild(feedback);
 
     // Reveal area (definition, shown after answering)
     const revealDiv = document.createElement('div');
     revealDiv.className = 'fitb-reveal';
     revealDiv.style.display = 'none';
-    fitbCard.appendChild(revealDiv);
+    card.appendChild(revealDiv);
 
     // Button row
     const btnRow = document.createElement('div');
@@ -2441,50 +2673,55 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkBtn.textContent = 'Check';
 
     const nextBtn = document.createElement('button');
+    nextBtn.id = 'practice-next-btn'; // Enter-to-advance keyboard shortcut targets this id (see the global keydown listener below) — only one Practice mode is ever rendered into #practice-container at a time, so reusing the same id across both modes' Next buttons is safe.
     nextBtn.className = 'btn-ghost';
     nextBtn.style.cssText = 'padding:10px 20px;font-size:14px;display:none;';
     nextBtn.textContent = 'Next →';
-    nextBtn.onclick = () => { _practiceIndex++; _showNextFitb(); };
+    nextBtn.onclick = () => { state.index++; _showNextPracticeCard(state, config); };
 
     const skipBtn = document.createElement('button');
     skipBtn.style.cssText = 'padding:10px 16px;font-size:13px;background:none;border:1px solid var(--border);border-radius:10px;color:var(--text-muted);cursor:pointer;font-family:inherit;';
     skipBtn.textContent = 'Skip';
-    skipBtn.onclick = () => { _practiceIndex++; _showNextFitb(); };
 
     const hintBtn = document.createElement('button');
     hintBtn.style.cssText = 'padding:8px 14px;font-size:12px;background:none;border:1px solid var(--border);border-radius:8px;color:var(--text-soft);cursor:pointer;font-family:inherit;';
     hintBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Hint';
     hintBtn.onclick = () => { hintLine.style.visibility = 'visible'; hintBtn.style.display = 'none'; };
 
-    function checkAnswer() {
-      if (answered) return;
-      const userAns = input.value.trim();
-      if (!userAns) return;
-
+    // Shared "reveal" transition — both a checked answer and a skip land
+    // here: input locked, Check/Skip/Hint hidden, Next shown. Having Skip go
+    // through the same reveal step as Check (rather than silently
+    // fast-forwarding, as it did before) is what makes the two-state Enter
+    // logic below make sense: State 2 (Results) is "whatever got you here,
+    // the definition is now showing and Next is the only way forward."
+    function _revealUI() {
       answered = true;
       input.disabled = true;
       checkBtn.style.display = 'none';
       skipBtn.style.display  = 'none';
       hintBtn.style.display  = 'none';
       nextBtn.style.display  = '';
+    }
 
-      // Find the target word form actually used in the sentence
-      const { text: sentText } = sources[srcIdx] ?? { text: '' };
-      const escaped    = word.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const sentMatch  = sentText.match(new RegExp(`\\b(${escaped}\\w*)\\b`, 'i'));
-      const targetForm = sentMatch?.[1] ?? word.text;
+    function checkAnswer() {
+      if (answered) return;
+      const userAns = input.value.trim();
+      if (!userAns) return;
 
+      _revealUI();
+
+      const expected  = bodyApi.getExpectedAnswer();
       const norm      = s => s.toLowerCase().trim();
-      const isCorrect = norm(userAns) === norm(word.text) || norm(userAns) === norm(targetForm);
+      const isCorrect = norm(userAns) === norm(word.text) || norm(userAns) === norm(expected);
 
       if (isCorrect) {
         input.classList.add('correct');
         feedback.innerHTML = `<span style="color:#16a34a;">✓ Correct!</span>`;
-        _practiceCorrect.push(word);
+        state.correct.push(word);
       } else {
         input.classList.add('wrong');
-        feedback.innerHTML = `<span style="color:#ef4444;">✗ The answer was <strong>${escapeHtml(targetForm)}</strong></span>`;
-        _practiceWrong.push(word);
+        feedback.innerHTML = `<span style="color:#ef4444;">✗ The answer was <strong>${escapeHtml(expected)}</strong></span>`;
+        state.wrong.push(word);
       }
 
       revealDiv.style.display = 'block';
@@ -2493,20 +2730,44 @@ document.addEventListener('DOMContentLoaded', async () => {
         : escapeHtml(analysis.definition || '');
     }
 
+    // Skip is a soft, neutral action — same as Game modes, it's not counted
+    // as wrong (no push to state.wrong) — it just reveals the answer via
+    // the same UI transition checkAnswer() uses, instead of the old
+    // behavior of silently jumping straight to the next word with no
+    // feedback shown at all.
+    function skipAnswer() {
+      if (answered) return;
+      _revealUI();
+      feedback.innerHTML = `<span style="color:#f59e0b;">→ Skipped — the answer was <strong>${escapeHtml(word.text)}</strong></span>`;
+      revealDiv.style.display = 'block';
+      revealDiv.innerHTML = analysis.translation
+        ? `<span style="color:var(--brand);font-weight:600;">${escapeHtml(analysis.translation)}</span> — ${escapeHtml(analysis.definitionTranslated || analysis.definition || '')}`
+        : escapeHtml(analysis.definition || '');
+    }
+
     checkBtn.onclick = checkAnswer;
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') checkAnswer(); });
+    skipBtn.onclick  = skipAnswer;
+    // stopPropagation is the key fix: without it, this same Enter keypress
+    // bubbles from the input up to the document-level "Enter advances to
+    // Next" listener (added further down) — checkAnswer() has *already*
+    // made the Next button visible by the time bubbling reaches document,
+    // in the same synchronous dispatch, so both handlers used to fire off a
+    // single Enter press: submit AND immediately advance, skipping the
+    // results screen entirely. Stopping propagation here means submitting
+    // and advancing are always two separate keypresses.
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.stopPropagation(); checkAnswer(); } });
 
     btnRow.appendChild(checkBtn);
     btnRow.appendChild(nextBtn);
     btnRow.appendChild(skipBtn);
-    fitbCard.appendChild(btnRow);
+    card.appendChild(btnRow);
 
     const hintRow = document.createElement('div');
     hintRow.style.cssText = 'text-align:center;margin-top:12px;';
     hintRow.appendChild(hintBtn);
-    fitbCard.appendChild(hintRow);
+    card.appendChild(hintRow);
 
-    practiceContainer.appendChild(fitbCard);
+    practiceContainer.appendChild(card);
     input.focus();
   }
 
@@ -2518,202 +2779,77 @@ document.addEventListener('DOMContentLoaded', async () => {
   // user types what they hear. Separate correct/wrong tracking so switching
   // modes mid-session doesn't cross-contaminate either mode's score.
 
-  let _listenQueue   = [];
-  let _listenIndex   = 0;
-  let _listenCorrect = [];
-  let _listenWrong   = [];
+  const _listenState = { queue: [], index: 0, correct: [], wrong: [] };
 
+  // Defaults to "All Words" for the same reason renderPractice() does —
+  // Listen and Write's own spec is "all saved words," no FSRS relationship.
   async function renderListenWrite() {
+    _activePracticeMode = 'listen-write';
+    const token = ++_practiceEntryToken;
     const words = await getWords();
-    _listenQueue = words.slice();
-    // Fisher-Yates shuffle
-    for (let i = _listenQueue.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [_listenQueue[i], _listenQueue[j]] = [_listenQueue[j], _listenQueue[i]];
-    }
-    _listenIndex   = 0;
-    _listenCorrect = [];
-    _listenWrong   = [];
-    _showNextListen();
+    if (token !== _practiceEntryToken) return; // superseded by a newer entry
+    _practiceAllWords = words;
+    _activePracticeFilter = 'all';
+    _renderPracticeFilterStrip();
+    _applyPracticeFilter();
   }
 
-  function _showNextListen() {
-    practiceContainer.innerHTML = '';
-
-    if (_listenQueue.length === 0) {
-      practiceContainer.innerHTML = `
-        <div style="text-align:center;color:var(--text-muted);padding:40px 0;">
-          <div style="font-size:48px;margin-bottom:12px;">🎧</div>
-          <h2>No words yet</h2>
-          <p style="font-size:14px;margin-bottom:16px;">Save some words first, then come back to practice listening.</p>
-          <button class="btn-ghost" id="listen-back-modes-empty" style="padding:10px 20px;">← Back to modes</button>
-        </div>`;
-      document.getElementById('listen-back-modes-empty').onclick = showPracticeModeSelect;
-      return;
-    }
-
-    if (_listenIndex >= _listenQueue.length) {
-      const total = _listenCorrect.length + _listenWrong.length;
-      const score = total > 0 ? Math.round((_listenCorrect.length / total) * 100) : 0;
-
-      const wordList = (words, color, icon) => words.length === 0
-        ? `<span style="color:var(--text-soft);font-size:13px;">None</span>`
-        : words.map(w => `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;background:${color}15;color:${color};border:1px solid ${color}30;margin:3px 2px;">${icon} ${escapeHtml(w.text)}</span>`).join('');
-
-      practiceContainer.innerHTML = `
-        <div style="width:100%;max-width:560px;">
-          <div class="fitb-card" style="text-align:center;">
-            <div style="font-size:48px;margin-bottom:8px;">🎉</div>
-            <h2 style="color:var(--text-main);margin:0 0 4px;">Session Complete!</h2>
-            <p style="color:var(--text-muted);margin:0 0 16px;">You practised ${total} word${total !== 1 ? 's' : ''}</p>
-            <div style="font-size:36px;font-weight:700;background:linear-gradient(135deg,var(--brand),var(--brand-2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:20px;">${score}%</div>
-
-            <div style="text-align:left;margin-bottom:16px;">
-              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#16a34a;margin-bottom:8px;">✓ Correct (${_listenCorrect.length})</div>
-              <div style="display:flex;flex-wrap:wrap;gap:2px;">${wordList(_listenCorrect, '#16a34a', '✓')}</div>
-            </div>
-
-            <div style="text-align:left;margin-bottom:24px;">
-              <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#ef4444;margin-bottom:8px;">✗ Needs work (${_listenWrong.length})</div>
-              <div style="display:flex;flex-wrap:wrap;gap:2px;">${wordList(_listenWrong, '#ef4444', '✗')}</div>
-            </div>
-
-            <button class="btn-primary" id="restart-listen" style="padding:10px 28px;">Practice Again</button>
-            <button class="btn-ghost" id="listen-back-modes" style="padding:10px 20px;">← Back to modes</button>
-          </div>
-        </div>`;
-      document.getElementById('restart-listen').onclick = renderListenWrite;
-      document.getElementById('listen-back-modes').onclick = showPracticeModeSelect;
-      return;
-    }
-
-    const word     = _listenQueue[_listenIndex];
-    const analysis = word.aiAnalysis || {};
-    const total    = _listenQueue.length;
-    const progress = Math.round((_listenIndex / total) * 100);
-    let answered   = false;
-
-    // Progress bar
-    const progressWrap = document.createElement('div');
-    progressWrap.style.cssText = 'width:100%;background:rgba(0,0,0,0.07);border-radius:999px;height:4px;margin-bottom:20px;overflow:hidden;';
-    progressWrap.innerHTML = `<div style="height:4px;border-radius:999px;background:linear-gradient(90deg,var(--brand),var(--brand-2));width:${progress}%;transition:width 0.4s;"></div>`;
-    practiceContainer.appendChild(progressWrap);
-
-    const listenCard = document.createElement('div');
-    listenCard.className = 'fitb-card';
-
-    // Counter
-    const counter = document.createElement('div');
-    counter.style.cssText = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-soft);margin-bottom:14px;text-align:center;';
-    counter.textContent = `${_listenIndex + 1} / ${total}`;
-    listenCard.appendChild(counter);
-
-    // First-letter hint (hidden until used)
-    const hintLine = document.createElement('div');
-    hintLine.style.cssText = 'font-size:12px;color:var(--text-soft);margin-bottom:10px;text-align:center;visibility:hidden;';
-    hintLine.textContent = `Hint: starts with "${word.text[0].toUpperCase()}"`;
-    listenCard.appendChild(hintLine);
-
-    // Speaker — auto-plays once when the card renders, replayable on demand.
-    // The word itself is never shown anywhere on this card.
-    const speakerWrap = document.createElement('div');
-    speakerWrap.style.cssText = 'display:flex;justify-content:center;margin-bottom:20px;';
-    speakerWrap.appendChild(createSpeakerButton(word.text, analysis.audioBase64, 'Listen'));
-    listenCard.appendChild(speakerWrap);
-    speakText(word.text, analysis.audioBase64);
-
-    // Answer input
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = 'Type what you hear…';
-    input.className = 'fitb-input';
-    input.autocomplete = 'off';
-    input.spellcheck = false;
-    listenCard.appendChild(input);
-
-    // Feedback line
-    const feedback = document.createElement('div');
-    feedback.className = 'fitb-feedback';
-    listenCard.appendChild(feedback);
-
-    // Reveal area (definition + translation, shown after answering)
-    const revealDiv = document.createElement('div');
-    revealDiv.className = 'fitb-reveal';
-    revealDiv.style.display = 'none';
-    listenCard.appendChild(revealDiv);
-
-    // Button row
-    const btnRow = document.createElement('div');
-    btnRow.style.cssText = 'display:flex;gap:10px;justify-content:center;flex-wrap:wrap;';
-
-    const checkBtn = document.createElement('button');
-    checkBtn.className = 'btn-primary';
-    checkBtn.style.cssText = 'padding:10px 28px;font-size:14px;';
-    checkBtn.textContent = 'Check';
-
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'btn-ghost';
-    nextBtn.style.cssText = 'padding:10px 20px;font-size:14px;display:none;';
-    nextBtn.textContent = 'Next →';
-    nextBtn.onclick = () => { _listenIndex++; _showNextListen(); };
-
-    const skipBtn = document.createElement('button');
-    skipBtn.style.cssText = 'padding:10px 16px;font-size:13px;background:none;border:1px solid var(--border);border-radius:10px;color:var(--text-muted);cursor:pointer;font-family:inherit;';
-    skipBtn.textContent = 'Skip';
-    skipBtn.onclick = () => { _listenIndex++; _showNextListen(); };
-
-    const hintBtn = document.createElement('button');
-    hintBtn.style.cssText = 'padding:8px 14px;font-size:12px;background:none;border:1px solid var(--border);border-radius:8px;color:var(--text-soft);cursor:pointer;font-family:inherit;';
-    hintBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px;"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Hint';
-    hintBtn.onclick = () => { hintLine.style.visibility = 'visible'; hintBtn.style.display = 'none'; };
-
-    function checkAnswer() {
-      if (answered) return;
-      const userAns = input.value.trim();
-      if (!userAns) return;
-
-      answered = true;
-      input.disabled = true;
-      checkBtn.style.display = 'none';
-      skipBtn.style.display  = 'none';
-      hintBtn.style.display  = 'none';
-      nextBtn.style.display  = '';
-
-      const norm      = s => s.toLowerCase().trim();
-      const isCorrect = norm(userAns) === norm(word.text);
-
-      if (isCorrect) {
-        input.classList.add('correct');
-        feedback.innerHTML = `<span style="color:#16a34a;">✓ Correct!</span>`;
-        _listenCorrect.push(word);
-      } else {
-        input.classList.add('wrong');
-        feedback.innerHTML = `<span style="color:#ef4444;">✗ The answer was <strong>${escapeHtml(word.text)}</strong></span>`;
-        _listenWrong.push(word);
-      }
-
-      revealDiv.style.display = 'block';
-      revealDiv.innerHTML = analysis.translation
-        ? `<span style="color:var(--brand);font-weight:600;">${escapeHtml(analysis.translation)}</span> — ${escapeHtml(analysis.definitionTranslated || analysis.definition || '')}`
-        : escapeHtml(analysis.definition || '');
-    }
-
-    checkBtn.onclick = checkAnswer;
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') checkAnswer(); });
-
-    btnRow.appendChild(checkBtn);
-    btnRow.appendChild(nextBtn);
-    btnRow.appendChild(skipBtn);
-    listenCard.appendChild(btnRow);
-
-    const hintRow = document.createElement('div');
-    hintRow.style.cssText = 'text-align:center;margin-top:12px;';
-    hintRow.appendChild(hintBtn);
-    listenCard.appendChild(hintRow);
-
-    practiceContainer.appendChild(listenCard);
-    input.focus();
+  /** Build the listen-and-write queue from a (already FSRS-filtered) word list and start it. */
+  function _buildListenQueue(words) {
+    _listenState.queue   = _shuffle(words);
+    _listenState.index   = 0;
+    _listenState.correct = [];
+    _listenState.wrong   = [];
+    _showNextPracticeCard(_listenState, LISTEN_CONFIG);
   }
+
+  const LISTEN_CONFIG = {
+    emptyIcon: '🎧',
+    emptyTitle: 'No words yet',
+    emptyMessage: 'Save some words first, then come back to practice listening.',
+    inputPlaceholder: 'Type what you hear…',
+    restart: () => renderListenWrite(),
+    // Speaker — auto-plays once when the card renders, replayable on
+    // demand. The word itself is never shown anywhere on this card, so the
+    // expected answer is always just the bare word (no sentence-form logic
+    // like FITB needs).
+    renderBody(card, word, analysis) {
+      const speakerWrap = document.createElement('div');
+      speakerWrap.style.cssText = 'display:flex;justify-content:center;margin-bottom:20px;';
+      speakerWrap.appendChild(createSpeakerButton(word.text, analysis.audioBase64, 'Listen'));
+      card.appendChild(speakerWrap);
+      speakText(word.text, analysis.audioBase64);
+
+      return { getExpectedAnswer: () => word.text };
+    },
+  };
+
+  // ─── Practice: Enter-to-advance once the definition/results reveal is showing ──
+  // Both Read-and-Write's and Listen-and-Write's answer <input> already
+  // handle Enter to *submit* (checkAnswer(), see each mode's own keydown
+  // listener above) — but once answered, the input is disabled and a
+  // disabled element doesn't reliably keep receiving its own keydown events,
+  // so a second Enter press had no effect before this: the only way to move
+  // on was clicking "Next →" with the mouse. This is a second, separate,
+  // document-level listener that only acts once the Next button is actually
+  // visible (i.e. the reveal/definition area is showing), so it never
+  // conflicts with the input's own Enter-to-submit behavior — before
+  // answering, the Next button is display:none and this is a no-op.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    if (!document.getElementById('practice-view')?.classList.contains('active')) return;
+    if (!practiceSessionScreen.classList.contains('active')) return;
+
+    const nextBtn = document.getElementById('practice-next-btn');
+    if (!nextBtn || nextBtn.style.display === 'none' || nextBtn.disabled) return;
+    // If Next itself is already focused (e.g. the user tabbed to it), the
+    // browser's own native "Enter activates the focused button" behavior
+    // will fire its own click right after this keydown handler runs —
+    // skip our explicit click here so a single Enter press doesn't advance
+    // two words at once.
+    if (document.activeElement === nextBtn) return;
+    nextBtn.click();
+  });
 
 });
 

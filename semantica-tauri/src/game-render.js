@@ -22,7 +22,14 @@ export function renderMenu(profile) {
 }
 
 /** Render session summary on the results screen */
-export function renderResults(profile, sessionStats, newAchievements, raceLog = null) {
+// raceLog: per-word review list — despite the name, also used by Quick Ear
+// (see game-controller.js's endSession(), reviewLog var) since both build
+// the same { word, correct, skipped } shape. Kept the original param name
+// to avoid an unnecessary rename of a working, already-consistent contract.
+// extraScore: optional { label, value } tile for a mode-specific running
+// total that doesn't fit the shared correct/accuracy/mastered stats (e.g.
+// Quick Ear's points score).
+export function renderResults(profile, sessionStats, newAchievements, raceLog = null, extraScore = null) {
   const el = document.getElementById('results-content');
   if (!el) return;
   const accuracy = sessionStats.totalAnswered > 0
@@ -30,8 +37,11 @@ export function renderResults(profile, sessionStats, newAchievements, raceLog = 
   const titlesHtml = profile.titles?.length
     ? `<div class="results-titles">${profile.titles.map(t => `<span class="results-title-badge">${escapeHtml(t)}</span>`).join('')}</div>`
     : '';
+  const extraStatHtml = extraScore
+    ? `<div class="results-stat"><span class="rs-big">${extraScore.value}</span><span>${escapeHtml(extraScore.label)}</span></div>`
+    : '';
 
-  // Race-only word review log
+  // Race/Quick Ear word review log
   const raceReviewHtml = raceLog?.length ? `
     <div class="race-review">
       <div class="race-review-title">Word Review</div>
@@ -56,6 +66,7 @@ export function renderResults(profile, sessionStats, newAchievements, raceLog = 
     <div class="results-stat"><span class="rs-big">${sessionStats.correct}</span><span>Correct</span></div>
     <div class="results-stat"><span class="rs-big">${accuracy}%</span><span>Accuracy</span></div>
     <div class="results-stat"><span class="rs-big">${sessionStats.wordsMastered}</span><span>Mastered</span></div>
+    ${extraStatHtml}
     <div class="results-level">Level ${profile.level} · ${formatXPBar(profile)}</div>
     ${titlesHtml}
     ${newAchievements.map(a => `<div class="achievement-unlock">🏆 ${escapeHtml(a.title)}: ${escapeHtml(a.desc)}</div>`).join('')}

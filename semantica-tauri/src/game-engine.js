@@ -1,6 +1,7 @@
 // renderer/game-engine.js
 // Spaced repetition, scoring, XP, and achievement logic
-// Copied from utils/game-engine.js — no changes needed
+// Originally copied from utils/game-engine.js; since diverged (e.g. the
+// quickear XP multiplier below) as Game-tab-only modes were added.
 
 // ─── Spaced Repetition ────────────────────────────────────────────────────────
 
@@ -84,7 +85,11 @@ export function updateStats(stats, result) {
 
 // ─── XP & Scoring ─────────────────────────────────────────────────────────────
 
-const MODE_MULTIPLIERS = { race: 1.0, survival: 1.2, mission: 1.5 };
+// quickear sits between survival and mission: recalling spelling from audio
+// alone (no visible word/definition, unlike every other mode) is harder than
+// survival's continuous-pressure typing but doesn't require the sustained
+// multi-objective consistency mission does.
+const MODE_MULTIPLIERS = { race: 1.0, survival: 1.2, mission: 1.5, quickear: 1.35 };
 const STATE_DIFFICULTY = { new: 1, relearn: 2, learning: 2, known: 3 };
 
 /**

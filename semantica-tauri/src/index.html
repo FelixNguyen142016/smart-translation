@@ -698,23 +698,14 @@
     .review-controls {
       margin-top: 20px;
       display: flex;
-      gap: 10px;
+      gap: 8px;
       width: 100%;
-      max-width: 660px; /* wider to fit 3 buttons */
+      max-width: 760px; /* wide enough for 4 buttons (Again/Hard/Good/Easy) */
     }
 
-    .review-btn {
-      padding: 10px 28px;
-      border-radius: 999px;
-      font-weight: 600;
-      text-transform: uppercase;
-      font-size: 12px;
-      letter-spacing: 0.05em;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.12);
-    }
-
-    .btn-hard { background: linear-gradient(135deg, #ef4444, #f87171); color: white; }
-    .btn-good { background: linear-gradient(135deg, #22c55e, #4ade80); color: white; }
+    /* .review-btn is only a query-selector hook — app.js fully inline-styles
+       each button (colors, padding, radius) when it builds the review
+       controls, so no visual rules belong here. */
 
     /* ── Account & Settings two-column layout ── */
     .acct-grid { display:grid; grid-template-columns:340px 1fr; gap:20px; align-items:start; max-width:1040px; margin:0 auto; }
@@ -776,7 +767,7 @@
       --muted-bg: #1e293b;
       --card-bg: #1e293b;
     }
-    html.dark body { background: var(--page-bg, #0F172A); color: #e2e8f0; }
+    html.dark body { background: var(--page-bg, #0F172A); color: var(--text-main); }
     html.dark #login-page { background: #0F172A; }
     html.dark .lp-card { border-color: rgba(255,255,255,0.07); }
     html.dark .lp-form-panel { background: #1e293b; }
@@ -898,13 +889,38 @@
     .profile-xp-label { font-size: 12px; color: var(--text-soft); margin-bottom: 10px; }
     .profile-stats { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--text-muted); font-weight: 500; }
 
-    .mode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+    .mode-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 16px; }
+    /* Shared by both the Game tab's mode picker (data-mode) and the Practice
+       tab's (data-practice-mode) — see game-controller.js's comment on why
+       they intentionally share this class.
+       background/border were previously hardcoded to a fixed translucent
+       white (rgba(255,255,255,0.6)) and an undefined --glass-border token
+       (never defined anywhere, so the border silently rendered as none).
+       That fixed-white background ignored dark visual presets entirely: a
+       dark preset's --text-muted/-main are tuned to sit on that preset's own
+       dark cardBg (e.g. Nordic Aurora's rgba(255,255,255,0.07)), but the
+       card itself stayed a translucent WHITE regardless — light text landed
+       on an accidentally-light card, exactly the "light text on light
+       background" bug. Switched to var(--card-bg-translucent), the same
+       preset-aware token .card already uses, with the original white as a
+       fallback so the look is unchanged when no preset is active. Border
+       switched to the actually-defined var(--border) token for the same reason. */
     .mode-card {
-      background: rgba(255,255,255,0.6); border: 2px solid var(--glass-border);
+      background: var(--card-bg-translucent, rgba(255,255,255,0.6)); border: 2px solid var(--border);
       border-radius: 14px; padding: 20px 12px; text-align: center; cursor: pointer;
       transition: all 0.15s ease;
     }
-    .mode-card:hover { border-color: var(--brand-border); background: var(--brand-soft); }
+    /* Hover previously swapped the background to --brand-soft — a low-alpha
+       tint controlled only by the hue slider, never by the active visual
+       preset (see theme.js's applyVisualPreset comment) — which discarded
+       the preset's own tuned card surface entirely. Keeping the themed
+       background on hover (just a border highlight) means the surface a
+       preset's text color was tuned against never disappears, and bumping
+       .mode-desc to var(--text-main) is a small deliberate contrast boost
+       that's correct by construction in every preset: --text-main is always
+       each preset's most legible color, dark-on-light or light-on-dark. */
+    .mode-card:hover { border-color: var(--brand-border); background: var(--card-bg-translucent, rgba(255,255,255,0.6)); }
+    .mode-card:hover .mode-desc { color: var(--text-main); }
     .mode-card.selected { border-color: var(--brand); background: var(--brand-soft);
       box-shadow: 0 0 0 3px var(--brand-border); }
     .mode-icon { font-size: 28px; margin-bottom: 8px; }
@@ -921,6 +937,152 @@
        fallback if Phaser didn't load (e.g. no internet on first launch). */
     #race-canvas-container { display: none; width: 100%; height: 130px; margin-top: 6px; border-radius: 12px; overflow: hidden; background: var(--muted-bg); }
     #race-canvas-container canvas { display: block; width: 100% !important; height: 100% !important; }
+
+    /* Same pattern as #race-canvas-container, for Survival mode's campfire
+       scene (see survival-scene.js). Only one of the two is ever visible at
+       a time — game-controller.js toggles them per selected mode. */
+    #survival-canvas-container { display: none; width: 100%; height: 130px; margin-top: 6px; border-radius: 12px; overflow: hidden; background: var(--muted-bg); }
+    #survival-canvas-container canvas { display: block; width: 100% !important; height: 100% !important; }
+
+    /* Same small-banner pattern again, for Mission mode's expedition-path
+       scene (see mission-scene.js). Sits alongside the existing plain-text
+       #mission-objectives checklist rather than replacing it — the flags
+       can't show exact numbers ("7/10") the checklist already does, so both
+       stay visible together. */
+    #mission-canvas-container { display: none; width: 100%; height: 130px; margin-top: 6px; border-radius: 12px; overflow: hidden; background: var(--muted-bg); }
+    #mission-canvas-container canvas { display: block; width: 100% !important; height: 100% !important; }
+
+    /* Same small-banner pattern again, for Quick Ear's radio-dial scene (see
+       radio-scene.js). #quickear-timer-wrap is the plain-HTML fallback (and,
+       even when Phaser IS available, the actual numeric "N seconds left"
+       readout — the canvas ring is deliberately text-free, see
+       radio-scene.js's header comment) — so unlike Race/Survival/Mission's
+       canvas-vs-bar either/or, this one always shows, with the canvas an
+       optional cosmetic layer above it. */
+    #quickear-canvas-container { display: none; width: 100%; height: 130px; margin-top: 6px; border-radius: 12px; overflow: hidden; background: var(--muted-bg); }
+    #quickear-canvas-container canvas { display: block; width: 100% !important; height: 100% !important; }
+    #quickear-timer-wrap { display: none; align-items: center; gap: 10px; margin-top: 6px; }
+    #quickear-timer-bar-track { flex: 1; height: 6px; background: var(--brand-soft); border-radius: 999px; overflow: hidden; }
+    #quickear-timer-bar { height: 100%; width: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--brand), var(--brand-2)); transition: width 0.1s linear, background 0.2s; }
+    #quickear-timer-text { font-size: 13px; font-weight: 700; color: var(--text-main); min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* ── Survival immersive layout ──────────────────────────────────────
+       Applied only while Survival mode is active (game-controller.js toggles
+       .immersive-survival on .game-play-card via the survival entry's
+       onSetup/onTeardown hooks in VISUAL_MODES). Scoped entirely under this
+       one class so Race
+       and Mission mode's layout is completely unaffected. The campfire
+       canvas becomes the full card background; the definition box is kept
+       (same plain HTML box as before — an earlier revision tried tracking a
+       falling "meteor" instead and it was reverted) and folded into the same
+       floating glass panel as the typing input/hint/skip/quit controls. */
+    .game-play-card.immersive-survival {
+      position: relative;
+      overflow: hidden;
+      padding: 0;
+      aspect-ratio: 3 / 4; /* matches survival-scene.js's LOGICAL_WIDTH:HEIGHT (480:640) exactly, so the canvas fills it with zero FIT-mode letterboxing */
+      max-width: 480px;
+    }
+    .game-play-card.immersive-survival #survival-canvas-container {
+      display: block !important;
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      margin: 0; border-radius: 0;
+      z-index: 1;
+    }
+    .game-play-card.immersive-survival .race-bar-wrap,
+    .game-play-card.immersive-survival #race-canvas-container,
+    .game-play-card.immersive-survival #mission-canvas-container,
+    .game-play-card.immersive-survival #mission-objectives,
+    .game-play-card.immersive-survival #quickear-canvas-container,
+    .game-play-card.immersive-survival #quickear-timer-wrap {
+      display: none !important; /* the Phaser scene IS the visual — no bar/mission UI belongs here */
+    }
+    .game-play-card.immersive-survival .mode-status-bar {
+      position: absolute; top: 12px; left: 12px; right: 12px; z-index: 5;
+      margin: 0; display: flex; justify-content: center; pointer-events: none;
+    }
+    .game-play-card.immersive-survival #mode-status {
+      display: inline-block;
+      background: rgba(15,23,42,0.55); color: #fde68a;
+      padding: 5px 14px; border-radius: 999px; font-weight: 700; font-size: 13px;
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    /* Definition text merges directly into the control panel below (no
+       nested box/border of its own) so the bottom of the screen reads as
+       one slim bar rather than two stacked cards fighting the campfire for
+       space. Long definitions are clamped to 2 lines instead of growing the
+       panel taller. */
+    .game-play-card.immersive-survival .game-definition-box {
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .game-play-card.immersive-survival .game-def-label {
+      color: rgba(241,245,249,0.55);
+      font-size: 9px;
+      margin-bottom: 2px;
+    }
+    .game-play-card.immersive-survival .game-definition-text {
+      color: #f8fafc;
+      font-size: 13px;
+      line-height: 1.3;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* .survival-control-panel wraps the definition box / hint-area /
+       answer-input / feedback-area / game-actions unconditionally (see
+       index.html markup) so their element IDs never move in the DOM —
+       game-controller.js's existing getElementById calls need zero changes.
+       display:contents makes the wrapper invisible to layout for Race/
+       Mission (children render exactly as before); only .immersive-survival
+       turns it into the floating glass panel — kept deliberately slim (one
+       bar, tight padding/gap) so it leaves the campfire's stage clear above it. */
+    .survival-control-panel { display: contents; }
+    .game-play-card.immersive-survival .survival-control-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      position: absolute; left: 14px; right: 14px; bottom: 14px; z-index: 6;
+      background: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 16px;
+      padding: 10px 14px;
+    }
+    .game-play-card.immersive-survival .survival-control-panel > * { margin-bottom: 0 !important; }
+
+    /* Readable-on-dark-glass overrides — the panel always sits over the
+       campfire's night sky, so it deliberately ignores the active theme
+       preset/dark-mode toggle here, same reasoning as the campfire itself
+       not reacting to --brand. */
+    .game-play-card.immersive-survival #answer-input {
+      background: rgba(255,255,255,0.14) !important;
+      border-color: rgba(255,255,255,0.28) !important;
+      color: #f8fafc !important;
+      padding: 10px 14px;
+      font-size: 15px;
+    }
+    .game-play-card.immersive-survival #answer-input::placeholder { color: rgba(241,245,249,0.55); }
+    .game-play-card.immersive-survival #answer-input:focus {
+      border-color: #fbbf24 !important;
+      box-shadow: 0 0 0 3px rgba(251,191,36,0.25) !important;
+    }
+    .game-play-card.immersive-survival .hint-item { color: #fde68a; }
+    .game-play-card.immersive-survival .feedback-correct { color: #86efac; }
+    .game-play-card.immersive-survival .feedback-wrong { color: #fca5a5; }
+    .game-play-card.immersive-survival .btn-ghost,
+    .game-play-card.immersive-survival .btn-icon {
+      background: rgba(255,255,255,0.1) !important;
+      color: #f1f5f9 !important;
+      border-color: rgba(255,255,255,0.22) !important;
+    }
+    .game-play-card.immersive-survival .btn-ghost:hover,
+    .game-play-card.immersive-survival .btn-icon:hover { background: rgba(255,255,255,0.18) !important; }
 
     .game-definition-box { background: var(--brand-soft); border: 1px solid var(--brand-border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
     .game-def-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-soft); margin-bottom: 8px; }
@@ -998,7 +1160,7 @@
     .fitb-input.wrong   { border-color:#ef4444;background:rgba(239,68,68,0.05); }
     .fitb-feedback { font-size:15px;font-weight:600;min-height:26px;margin-bottom:8px;text-align:center; }
     .fitb-reveal { font-size:13px;color:var(--text-muted);text-align:center;line-height:1.5;border-top:1px solid var(--border);padding-top:10px;margin-top:4px;margin-bottom:12px; }
-    html.dark .fitb-card { background:rgba(30,41,59,0.92);border-color:rgba(255,255,255,0.08); }
+    html.dark .fitb-card { background:var(--card-bg-translucent, rgba(30,41,59,0.92)) !important;border-color:rgba(255,255,255,0.08); }
     html.dark .fitb-input { background:var(--card-bg-translucent, rgba(255,255,255,0.05)) !important; }
     /* Word lookup modal */
     #word-lookup-modal.open { display: flex !important; }
@@ -1241,6 +1403,11 @@
 
     <!-- Screen: Active practice session (either mode renders here) -->
     <div id="practice-screen-session" class="practice-screen">
+      <!-- Same FSRS filter pills as #srs-strip on the Review tab (see
+           renderFsrsFilterPills() in app.js) — no due/soon/upcoming/new
+           counts here since those are Review-specific SRS-strip stats, just
+           the 5 filter pills themselves. -->
+      <div id="practice-filter-strip"></div>
       <div class="flashcard-container" id="practice-container"></div>
     </div>
 
@@ -1281,11 +1448,26 @@
             <div class="mode-name">Mission</div>
             <div class="mode-desc">Complete 3 objectives to win</div>
           </div>
+          <div class="mode-card" data-mode="quickear">
+            <div class="mode-icon">&#127911;</div>
+            <div class="mode-name">Quick Ear</div>
+            <div class="mode-desc">Hear the word, type it in 15s. You choose how many.</div>
+          </div>
         </div>
         <!-- Race word-count picker (hidden for other modes) -->
         <div id="race-word-count-wrap" style="margin-top:20px;display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:12px;">
           <span style="font-size:13px;font-weight:600;color:var(--text-main);">🏁 Words to race through:</span>
           <select id="race-word-count" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-main);font-size:13px;font-family:inherit;cursor:pointer;">
+            <option value="5">5 words</option>
+            <option value="10" selected>10 words</option>
+            <option value="20">20 words</option>
+            <option value="all">All words</option>
+          </select>
+        </div>
+        <!-- Quick Ear word-count picker (hidden for other modes) — same pattern as #race-word-count-wrap -->
+        <div id="quickear-word-count-wrap" style="margin-top:20px;display:none;align-items:center;gap:12px;padding:14px 16px;background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:12px;">
+          <span style="font-size:13px;font-weight:600;color:var(--text-main);">🎧 Words to test:</span>
+          <select id="quickear-word-count" style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-main);font-size:13px;font-family:inherit;cursor:pointer;">
             <option value="5">5 words</option>
             <option value="10" selected>10 words</option>
             <option value="20">20 words</option>
@@ -1299,23 +1481,55 @@
     <!-- Screen: Gameplay -->
     <div id="screen-play" class="game-screen">
       <div class="card game-play-card">
+        <!-- #survival-canvas-container lives here, as a direct child of
+             .game-play-card, NOT inside .mode-status-bar below. Under
+             .immersive-survival its CSS is `position:absolute;inset:0` and
+             is meant to fill the whole card — that only works if its nearest
+             positioned ancestor is .game-play-card itself (position:relative
+             under .immersive-survival). .mode-status-bar also becomes
+             position:absolute under that same class (to pin the status badge
+             to the top), so if the canvas were still nested inside it (as
+             #race-canvas-container still is, harmlessly, since Race mode
+             never makes .mode-status-bar positioned), .mode-status-bar would
+             become the canvas's containing block instead — collapsing it to
+             the status bar's own content-height instead of the full card. -->
+        <div id="survival-canvas-container"></div>
         <div class="mode-status-bar">
           <span id="mode-status"></span>
           <div class="race-bar-wrap"><div id="race-bar" style="width:50%"></div></div>
           <div id="race-canvas-container"></div>
+          <div id="mission-canvas-container"></div>
           <div id="mission-objectives"></div>
+          <div id="quickear-canvas-container"></div>
+          <div id="quickear-timer-wrap">
+            <div id="quickear-timer-bar-track"><div id="quickear-timer-bar"></div></div>
+            <span id="quickear-timer-text">15s</span>
+          </div>
         </div>
-        <div class="game-definition-box">
-          <div class="game-def-label">Type the word for this definition:</div>
-          <div id="game-definition" class="game-definition-text"></div>
-        </div>
-        <div id="hint-area" class="hint-area"></div>
-        <input type="text" id="answer-input" class="game-input" placeholder="Type your answer and press Enter…" autocomplete="off" spellcheck="false" />
-        <div id="feedback-area" class="feedback-area"></div>
-        <div class="game-actions">
-          <button class="btn-ghost" id="btn-hint"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px;"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Hint</button>
-          <button class="btn-ghost" id="btn-skip">&#9197; Skip</button>
-          <button class="btn-icon" id="btn-quit-game" title="Quit" style="color:var(--danger)">&#10005; Quit</button>
+        <!-- Wraps the definition box + gameplay controls unconditionally so
+             their IDs never move — see the .survival-control-panel CSS
+             comment above for why this is display:contents outside Survival
+             mode (for Race/Mission it renders exactly as if these elements
+             were direct children of .game-play-card, same as before). -->
+        <div class="survival-control-panel">
+          <div class="game-definition-box">
+            <div class="game-def-label">Type the word for this definition:</div>
+            <div id="game-definition" class="game-definition-text"></div>
+          </div>
+          <div id="hint-area" class="hint-area"></div>
+          <input type="text" id="answer-input" class="game-input" placeholder="Type your answer and press Enter…" autocomplete="off" spellcheck="false" />
+          <div id="feedback-area" class="feedback-area"></div>
+          <div class="game-actions">
+            <button class="btn-ghost" id="btn-hint"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px;"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>Hint</button>
+            <!-- Quick Ear only — hidden by default (JS shows it via the
+                 quickear entry's onSetup in VISUAL_MODES, alongside hiding
+                 #btn-hint, since a hint would trivialize a dictation test). Unlimited replays,
+                 each one costs points (see game-modes.js QuickEarMode) and
+                 does not reset the 15s timer. -->
+            <button class="btn-ghost" id="btn-replay-audio" style="display:none;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:6px;"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Replay</button>
+            <button class="btn-ghost" id="btn-skip">&#9197; Skip</button>
+            <button class="btn-icon" id="btn-quit-game" title="Quit" style="color:var(--danger)">&#10005; Quit</button>
+          </div>
         </div>
       </div>
     </div>

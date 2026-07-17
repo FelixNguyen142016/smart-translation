@@ -1,6 +1,7 @@
 // renderer/game-modes.js
-// Race, Survival, and Mission mode implementations
-// Copied from dashboard/game-modes.js — no changes needed
+// Race, Survival, Mission, and Quick Ear mode implementations
+// Originally copied from dashboard/game-modes.js; QuickEarMode was added
+// here later (RaceMode/SurvivalMode/MissionMode are still unchanged copies).
 
 // ─── Race Mode ────────────────────────────────────────────────────────────────
 
@@ -92,7 +93,6 @@ export class MissionMode {
     this.totalAnswered = 0;
     this.hintCount = 0;
     this.noHintStreak = 0;
-    this.active = true;
   }
 
   static defaultObjectives() {
@@ -146,5 +146,90 @@ export class MissionMode {
     return `Objectives: ${done}/${this.objectives.length}`;
   }
 
-  stop() { this.active = false; }
+  // Purely reactive — no interval/timer of its own to clean up (unlike
+  // Race/Survival's stop()), kept for a consistent lifecycle interface.
+  stop() {}
+}
+
+// ─── Quick Ear Mode ───────────────────────────────────────────────────────────
+// Hear the word, type what you heard, 15 seconds per word. Unlike Race/Survival,
+// there is no continuous session-level clock for this class to own — the real
+// per-word 15s countdown is driven by game-controller.js off actual elapsed
+// time (see its _qe* timer, and radio-scene.js's cosmetic countdown ring that
+// mirrors it), the same Hybrid Architecture split used everywhere else: this
+// class only ever reacts to a round's outcome, it never runs its own interval.
+//
+// Scoring (per word, on a correct answer within the 15s window):
+//   100 base
+// + speed bonus, up to 50, linear on time remaining at submit (timeLeft/15 * 50)
+// + first-try bonus, +20, only if the word was never replayed this round
+// - replay penalty, 25 per replay, capped so a single word's total never goes
+//   negative (Math.max(0, ...) at the end)
+// + streak bonus, +5 per consecutive correct word, capped at +50
+//
+// A wrong answer or a timeout scores 0 for that word and resets the streak,
+// but never subtracts from the running total — same non-punishing philosophy
+// as MissionMode (a miss costs you the opportunity for that word's points,
+// not previously-earned points).
+export class QuickEarMode {
+  constructor() {
+    this.score = 0;
+    this.correct = 0;
+    this.wrong = 0; // includes timeouts — both are "didn't get it" for accuracy purposes
+    this.totalAnswered = 0;
+    this.streak = 0;
+    this.maxStreak = 0;
+  }
+
+  /**
+   * @param {number} timeLeft - seconds remaining (0-15) at the moment of submission
+   * @param {number} replayCount - how many times the audio was replayed this round
+   * @returns {number} points earned for this word (also added to this.score)
+   */
+  onCorrect(timeLeft, replayCount = 0) {
+    this.correct += 1;
+    this.totalAnswered += 1;
+    this.streak += 1;
+    if (this.streak > this.maxStreak) this.maxStreak = this.streak;
+
+    const speedBonus    = Math.round(clampTimeLeft(timeLeft) / 15 * 50);
+    const firstTryBonus = replayCount === 0 ? 20 : 0;
+    const streakBonus   = Math.min(50, (this.streak - 1) * 5);
+    const replayPenalty = replayCount * 25;
+
+    const points = Math.max(0, 100 + speedBonus + firstTryBonus + streakBonus - replayPenalty);
+    this.score += points;
+    return points;
+  }
+
+  // Covers both a submitted-wrong answer and a timeout — same scoring
+  // consequence either way (0 points, streak reset). game-controller.js
+  // still distinguishes them in the feedback text shown to the user.
+  onWrong() {
+    this.wrong += 1;
+    this.totalAnswered += 1;
+    this.streak = 0;
+    return 0;
+  }
+
+  onSkip() {
+    this.totalAnswered += 1;
+    this.streak = 0;
+    return 0;
+  }
+
+  // Purely reactive — no interval/timer of its own to clean up (unlike
+  // Race/Survival's stop()), kept for a consistent lifecycle interface.
+  stop() {}
+
+  statusLabel() { return `Score: ${this.score}`; }
+}
+
+// Guards against a caller passing a negative/undefined timeLeft (shouldn't
+// happen — game-controller.js clamps its own countdown at 0 — but a scoring
+// function should never let a bad input produce a negative bonus).
+function clampTimeLeft(timeLeft) {
+  const n = Number(timeLeft);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(15, n));
 }

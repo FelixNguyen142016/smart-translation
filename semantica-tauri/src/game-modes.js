@@ -18,6 +18,14 @@ export class RaceMode {
   start() {
     this.active = true;
     this.progress = 50;
+    this._arm();
+  }
+
+  // Interval body lives here (not inlined in start()) so pause()/resume() can
+  // re-arm the same tick logic without going through start()'s progress reset —
+  // a bare interval-clear/recreate pair, unlike start()'s full restart.
+  _arm() {
+    clearInterval(this.intervalId);
     this.intervalId = setInterval(() => {
       if (!this.active) return;
       this.progress = Math.max(0, this.progress - this.drainRate);
@@ -25,6 +33,12 @@ export class RaceMode {
       if (this.progress <= 0) this.end('lost');
     }, 200);
   }
+
+  // Freezes progress in place (e.g. the player navigated away from the Game
+  // tab) without ending the run — resume() picks back up from wherever
+  // progress was left, unlike end()/stop() which are terminal.
+  pause() { this.active = false; clearInterval(this.intervalId); }
+  resume() { if (this.active) return; this.active = true; this._arm(); }
 
   onCorrect() { this.progress = Math.min(100, this.progress + 20); }
   onWrong()   { this.progress = Math.max(0,  this.progress - 10); }
@@ -54,6 +68,12 @@ export class SurvivalMode {
 
   start() {
     this.active = true;
+    this._arm();
+  }
+
+  // See RaceMode._arm() for why this is split out of start().
+  _arm() {
+    clearInterval(this.intervalId);
     this.intervalId = setInterval(() => {
       if (!this.active) return;
       this.timeLeft = Math.max(0, this.timeLeft - 1);
@@ -61,6 +81,10 @@ export class SurvivalMode {
       if (this.timeLeft <= 0) this.end();
     }, 1000);
   }
+
+  // See RaceMode.pause()/resume() for the rationale.
+  pause() { this.active = false; clearInterval(this.intervalId); }
+  resume() { if (this.active) return; this.active = true; this._arm(); }
 
   onCorrect() { this.timeLeft = Math.min(120, this.timeLeft + 5); }
   onWrong()   {

@@ -3,7 +3,7 @@
 // Adapted from dashboard/dashboard.js — chrome.* APIs replaced with localStorage + fetch
 
 import { getWords, deleteWord, updateWord, saveWord, getSettings, saveSettings } from './storage-shim.js';
-import { initGame } from './game-controller.js';
+import { initGame, pauseGameSession, resumeGameSession } from './game-controller.js';
 import { applyTheme, applyHueTheme, VISUAL_PRESET_GROUPS, getVisualPreset, applyVisualPreset } from './theme.js';
 import { nextLearningState } from './game-engine.js';
 import { fsrs, Rating, State as FsrsState, createEmptyCard } from './fsrs-vendor.js';
@@ -243,6 +243,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (tab.classList.contains('active')) return; // already active, skip
 
       const outgoing = document.querySelector('.view-section.active');
+
+      // Freeze any active game session before leaving the Game tab — without
+      // this, Quick Ear's round timer (and Race/Survival's tick interval)
+      // keeps running unattended in the background, since nothing else in
+      // this handler reacts to the *outgoing* tab.
+      if (outgoing && outgoing.id === 'game-view') pauseGameSession();
+
       const useAnimation = !NO_DISSOLVE.has(tab.dataset.target) &&
                            outgoing && !NO_DISSOLVE.has(outgoing.id);
 
@@ -274,7 +281,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         applySearchFilter(searchInput ? searchInput.value.trim() : '');
       });
       if (tab.dataset.target === 'review-view')    startReviewSession();
-      if (tab.dataset.target === 'game-view')      initGame();
+      if (tab.dataset.target === 'game-view')      { initGame(); resumeGameSession(); }
       if (tab.dataset.target === 'sentences-view') renderSentences();
       if (tab.dataset.target === 'videos-view')    renderVideos();
       if (tab.dataset.target === 'practice-view')  showPracticeModeSelect();

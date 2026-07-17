@@ -221,6 +221,13 @@ function _startQuickEarRound(word) {
   _renderQuickEarTimer();
   quickEarPlayWord();
   speakText(word.text, word.aiAnalysis?.audioBase64);
+  _armQuickEarTimer();
+}
+
+// Split out of _startQuickEarRound so resumeGameSession() can re-arm the
+// countdown after a pause without replaying audio or resetting the clock —
+// the player already heard this word before navigating away.
+function _armQuickEarTimer() {
   _qeTimerId = setInterval(() => {
     _qeTimeLeft = Math.max(0, _qeTimeLeft - 0.1);
     _renderQuickEarTimer();
@@ -265,6 +272,39 @@ function replayQuickEarAudio() {
   _qeReplayCount += 1;
   quickEarPlayWord();
   speakText(currentWord.text, currentWord.aiAnalysis?.audioBase64);
+}
+
+// ─── Tab-visibility pause/resume ────────────────────────────────────────────
+// Bug: navigating away from the Game tab (to Vocab List/Review/Practice/
+// Settings) never ran any teardown — only the *incoming* tab's dataset.target
+// got special-cased in app.js's nav-tab handler, nothing fired for the
+// *outgoing* one. Quick Ear's round loop is self-sustaining once started
+// (timeout → processResult → nextRound → _startQuickEarRound → speakText →
+// re-arm timer), completely independent of Phaser's render loop or whether
+// #game-view is even visible, so it just kept playing audio and burning
+// through the word queue in the background indefinitely. Race/Survival have
+// the same latent issue (their modeInstance keeps ticking unseen), just
+// without an audible symptom. app.js calls these two functions on every
+// tab-away-from/tab-back-to game-view, regardless of whether a session is
+// even active (both are no-ops via the isSessionActive guard when idle).
+export function pauseGameSession() {
+  if (!isSessionActive) return;
+  VISUAL_MODES[selectedMode]?.pause?.();
+  modeInstance?.pause?.();
+  _clearQuickEarTimer();
+}
+
+export function resumeGameSession() {
+  if (!isSessionActive) return;
+  VISUAL_MODES[selectedMode]?.resume?.();
+  modeInstance?.resume?.();
+  // Only re-arm if a round was actually in progress (currentWord set) and
+  // isn't already ticking — guards against double-arming if resume is ever
+  // called twice in a row (e.g. a stray extra tab-click) without an
+  // intervening pause.
+  if (selectedMode === 'quickear' && currentWord && !_qeTimerId) {
+    _armQuickEarTimer();
+  }
 }
 
 // ─── Public Init ─────────────────────────────────────────────────────────────

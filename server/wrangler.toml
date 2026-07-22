@@ -27,8 +27,24 @@ preview_id = "3dd14456c4864a359235340f492645d5"
 [placement]
 mode = "smart"
 
+# ── SePay billing ──────────────────────────────────────────────────────────
+# Bank account the VietQR codes point to. Not secret — these are the same
+# values printed on any invoice, and qr.sepay.vn/img is a public unauthenticated
+# endpoint. Get the exact bank name string from https://qr.sepay.vn/banks.json.
+[vars]
+SEPAY_BANK_ACCOUNT = "0393899818"
+SEPAY_BANK_NAME = "MBBank"
+# Base URL for the token.ai.vn OpenAI-compatible endpoint (definition/example
+# generation, see _callGPTDefinition in analyze.js). CONFIRM THIS against
+# token.ai.vn's own docs before deploying — the code assumes the standard
+# OpenAI Chat Completions contract (POST {base}/chat/completions), which may
+# not match exactly. Not secret — it's just a hostname, like the DeepL host.
+TOKENAI_BASE_URL = "https://token.ai.vn"
+
 # ── Secrets (never commit actual values) ──────────────────────────────────────
 # After setup, run:
 #   npx wrangler secret put ANTHROPIC_KEY
 #   npx wrangler secret put DEEPL_KEY
 #   npx wrangler secret put RESEND_KEY
+#   npx wrangler secret put SEPAY_WEBHOOK_KEY   # matches the API Key you set in the SePay dashboard's webhook Security step
+#   npx wrangler secret put TOKENAI_KEY         # token.ai.vn API key (definition/example generation)

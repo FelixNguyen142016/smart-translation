@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Semantica",
-  "version": "1.1.0",
+  "version": "1.4.0",
   "identifier": "com.mysemantica.app",
   "build": {
     "frontendDist": "../src"
@@ -27,9 +27,18 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI4NEEyOUU1OThFNjg2QTIKUldTaWh1YVk1U2xLS0JWVEhmM2xldHRXazZiNjB5eHd4alZHaGJFL2crMkYzeGlXVzdvY21LMmcK",
+      "endpoints": [
+        "https://github.com/FelixNguyen142016/semantica-releases/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

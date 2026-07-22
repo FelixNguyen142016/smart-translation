@@ -1,5 +1,7 @@
 // server/src/analyze.js
-// POST /v1/analyze — Claude Haiku 4.5 (definition) + DeepL (translation) in parallel, KV cached.
+// POST /v1/analyze — GPT-4o-mini (definition/POS/example, token.ai.vn) + Claude
+// Haiku 4.5 (register tags/IELTS topics, and the DeepL translation fallback) +
+// DeepL (translation), all running in parallel where possible, KV cached.
 // Response shape is identical to analyzeWithPerplexity in the extension's ai-service.js.
 //
 // Also exposes the same pipeline split into two steps for callers that want to
@@ -10,7 +12,7 @@
 // helpers and the same two-tier cache, so a lookup started on one endpoint
 // benefits every other endpoint that touches the same word.
 
-import { systemPrompt, userMessage } from './prompts.js';
+import { definitionSystemPrompt, classifySystemPrompt, userMessage } from './prompts.js';
 import { checkRateLimit } from './rate-limit.js';
 
 const CACHE_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
@@ -36,13 +38,42 @@ function englishCacheKey(text) {
 }
 
 /**
- * Phase 1: Claude (English definition/POS/example/tags/topics) + Google TTS +
- * Datamuse synonyms + IPA, all in parallel. Cached under a language-independent
- * key so any target language benefits from one word ever being looked up once.
- * Throws on Claude failure — callers convert that into an error response.
+ * Persist the merged (English + translation) result to the per-language cache —
+ * but only when translation actually succeeded. Caching an entry with empty
+ * translation fields would poison the cache for the full 7-day TTL:
+ * /v1/analyze/fast would report it `complete: true` forever and the client
+ * would never attempt the translate step again. When both DeepL and the
+ * Claude fallback fail, we skip the write so the next lookup retries.
+ * A KV write failure must not break an already-successful analysis either —
+ * logged and swallowed.
+ */
+async function _cacheFullResult(env, text, targetLanguage, analysis) {
+  if (!analysis.translation) {
+    console.error(`Skipping full-cache write for "${text}" (${targetLanguage}): translation empty — will retry on next lookup`);
+    return;
+  }
+  const key = fullCacheKey(text, targetLanguage);
+  try {
+    await env.CACHE.put(key, JSON.stringify(analysis), { expirationTtl: CACHE_TTL_SECONDS });
+  } catch (err) {
+    console.error(`Analysis cache write failed for ${key}: ${err?.message || err}`);
+  }
+}
+
+/**
+ * Phase 1: GPT (definition/POS/example) + Claude Haiku (register tags + IELTS
+ * topics) + Google TTS + Datamuse synonyms + IPA, all in parallel — GPT and
+ * Claude both classify from the same (text, context) input independently, so
+ * neither waits on the other. Cached under a language-independent key so any
+ * target language benefits from one word ever being looked up once.
+ * Throws only if the definition call (GPT) fails — that's the content a user
+ * actually reads, so there's nothing worth showing without it. A failed
+ * classify call (Claude) degrades gracefully to empty tags/topics, same as
+ * TTS/Datamuse/IPA already do — a missing topic filter isn't worth failing
+ * the whole lookup over.
  * @param {string} text
  * @param {string} context
- * @param {{ CACHE: KVNamespace, ANTHROPIC_KEY: string, GOOGLE_TTS_KEY: string }} env
+ * @param {{ CACHE: KVNamespace, ANTHROPIC_KEY: string, TOKENAI_KEY: string, TOKENAI_BASE_URL: string, GOOGLE_TTS_KEY: string }} env
  */
 async function _getOrBuildEnglishContent(text, context, env) {
   const enKey = englishCacheKey(text);
@@ -53,18 +84,30 @@ async function _getOrBuildEnglishContent(text, context, env) {
     console.error(`English-content cache read failed for ${enKey}: ${err?.message || err}`);
   }
 
-  const [claudeResult, ttsResult, synResult, ipaResult] = await Promise.allSettled([
-    _callClaude(text, context, env.ANTHROPIC_KEY),
+  const [defResult, classifyResult, ttsResult, synResult, ipaResult] = await Promise.allSettled([
+    _callGPTDefinition(text, context, env.TOKENAI_KEY, env.TOKENAI_BASE_URL),
+    _callClaudeClassify(text, context, env.ANTHROPIC_KEY),
     _callGoogleTTS(text, env.GOOGLE_TTS_KEY),
     _callDatamuse(text),
     _getIPA(env.CACHE, text),
   ]);
 
-  if (claudeResult.status === 'rejected') {
-    throw new Error(claudeResult.reason?.message || 'Claude call failed');
+  if (defResult.status === 'rejected') {
+    throw new Error(defResult.reason?.message || 'Definition call failed');
   }
 
-  const analysis = claudeResult.value;
+  const analysis = defResult.value;
+
+  // Register tags + IELTS topics from Claude (silent empty-array fallback —
+  // a classification miss shouldn't fail the whole lookup)
+  if (classifyResult.status === 'fulfilled' && classifyResult.value) {
+    analysis.tags = classifyResult.value.tags || [];
+    analysis.ieltsTopics = classifyResult.value.ieltsTopics || [];
+  } else {
+    console.error(`Claude classify failed for "${text}": ${classifyResult.reason?.message || classifyResult.reason}`);
+    analysis.tags = [];
+    analysis.ieltsTopics = [];
+  }
 
   // IPA from the bundled dataset (silent blank if the word isn't in it)
   analysis.pronunciation =
@@ -109,7 +152,7 @@ async function _applyTranslation(analysis, text, targetLanguage, env) {
   analysis.translation               = translated?.[0] || analysis.translation || '';
   analysis.definitionTranslated      = translated?.[1] || '';
   analysis.exampleSentenceTranslated = translated?.[2] || '';
-  analysis.source = 'Claude Haiku (EN) + DeepL + Google TTS';
+  analysis.source = 'GPT-4o-mini (definition) + Claude Haiku (classification/fallback) + DeepL + Google TTS';
 
   return analysis;
 }
@@ -118,31 +161,19 @@ async function _applyTranslation(analysis, text, targetLanguage, env) {
  * @param {Request} req
  * @param {{ DB: D1Database, CACHE: KVNamespace, ANTHROPIC_KEY: string, DEEPL_KEY: string }} env
  * @param {string} userId
+ * @param {boolean} isPro
  */
-export async function handleAnalyze(req, env, userId) {
+export async function handleAnalyze(req, env, userId, isPro = false) {
   let body;
   try { body = await req.json(); } catch {
     return errResponse('Invalid JSON body', 400);
   }
 
-  const { text, context = '', targetLanguage = 'Spanish' } = body || {};
+  const { text, context = '', targetLanguage = 'Vietnamese' } = body || {};
   if (!text?.trim()) return errResponse('Missing text', 400);
 
-  // ── SUBSCRIPTION CHECK ──────────────────────────────────────────────────
-  // Uncomment the block below when launching the paid tier.
-  // Default is_subscribed = 1 in schema, so all users pass during testing.
-  //
-  // const user = await env.DB.prepare('SELECT is_subscribed FROM users WHERE id = ?').bind(userId).first();
-  // if (!user?.is_subscribed) {
-  //   return new Response(
-  //     JSON.stringify({ error: 'Subscription required', code: 'SUBSCRIPTION_REQUIRED' }),
-  //     { status: 402, headers: { 'Content-Type': 'application/json' } }
-  //   );
-  // }
-  // ────────────────────────────────────────────────────────────────────────
-
-  // Rate limit check
-  const rl = await checkRateLimit(env.CACHE, userId, 'analyze');
+  // Rate limit check — higher daily quota for an active paid plan (see auth.js verifyToken)
+  const rl = await checkRateLimit(env.CACHE, userId, 'analyze', isPro);
   if (!rl.allowed) {
     return new Response(
       JSON.stringify({ error: 'Daily analysis limit reached', limit: rl.limit }),
@@ -180,14 +211,7 @@ export async function handleAnalyze(req, env, userId) {
 
   await _applyTranslation(analysis, text, targetLanguage, env);
 
-  // Cache result. A write failure here (KV quota/rate limit) must not turn an
-  // already-successful analysis into a 500 — the user still gets their result,
-  // they just won't get a cached instant-hit next time.
-  try {
-    await env.CACHE.put(cacheKey, JSON.stringify(analysis), { expirationTtl: CACHE_TTL_SECONDS });
-  } catch (err) {
-    console.error(`Analysis cache write failed for ${cacheKey}: ${err?.message || err}`);
-  }
+  await _cacheFullResult(env, text, targetLanguage, analysis);
 
   return new Response(JSON.stringify(analysis), { headers: rlHeaders });
 }
@@ -200,18 +224,18 @@ export async function handleAnalyze(req, env, userId) {
  * `complete: false` means translation is not included yet; call
  * /v1/analyze/translate next to get it.
  */
-export async function handleAnalyzeFast(req, env, userId) {
+export async function handleAnalyzeFast(req, env, userId, isPro = false) {
   let body;
   try { body = await req.json(); } catch {
     return errResponse('Invalid JSON body', 400);
   }
 
-  const { text, context = '', targetLanguage = 'Spanish' } = body || {};
+  const { text, context = '', targetLanguage = 'Vietnamese' } = body || {};
   if (!text?.trim()) return errResponse('Missing text', 400);
 
   // This step runs (or reuses the cache for) the Claude call, so it consumes
   // the same daily 'analyze' quota as the single-shot endpoint.
-  const rl = await checkRateLimit(env.CACHE, userId, 'analyze');
+  const rl = await checkRateLimit(env.CACHE, userId, 'analyze', isPro);
   if (!rl.allowed) {
     return new Response(
       JSON.stringify({ error: 'Daily analysis limit reached', limit: rl.limit }),
@@ -233,7 +257,14 @@ export async function handleAnalyzeFast(req, env, userId) {
   } catch (err) {
     console.error(`Analysis cache read failed for ${fullKey}: ${err?.message || err}`);
   }
-  if (cachedFull) {
+  // Only trust a cached full entry that actually contains a translation.
+  // Entries written before the empty-translation guard existed could have
+  // blank translation fields — treating those as complete would suppress the
+  // client's translate step forever. Falling through instead re-serves the
+  // English content (a cache hit on the English-only key) with
+  // complete: false, so the client retries translation and the fixed
+  // _cacheFullResult overwrites the poisoned entry on success.
+  if (cachedFull?.translation) {
     return new Response(JSON.stringify({ ...cachedFull, cached: true, complete: true }), { headers: rlHeaders });
   }
 
@@ -255,18 +286,18 @@ export async function handleAnalyzeFast(req, env, userId) {
  * per-language cache so future lookups of this word+language are instant.
  * Returns only the translation delta fields — the caller already has the rest.
  */
-export async function handleAnalyzeTranslate(req, env, userId) {
+export async function handleAnalyzeTranslate(req, env, userId, isPro = false) {
   let body;
   try { body = await req.json(); } catch {
     return errResponse('Invalid JSON body', 400);
   }
 
-  const { text, targetLanguage = 'Spanish' } = body || {};
+  const { text, targetLanguage = 'Vietnamese' } = body || {};
   if (!text?.trim()) return errResponse('Missing text', 400);
 
   // DeepL-only work from here — shares the lighter 'translate' quota, same as
   // the plain /v1/translate endpoint.
-  const rl = await checkRateLimit(env.CACHE, userId, 'translate');
+  const rl = await checkRateLimit(env.CACHE, userId, 'translate', isPro);
   if (!rl.allowed) {
     return errResponse('Daily translation limit reached', 429);
   }
@@ -283,11 +314,7 @@ export async function handleAnalyzeTranslate(req, env, userId) {
 
   await _applyTranslation(analysis, text, targetLanguage, env);
 
-  try {
-    await env.CACHE.put(fullCacheKey(text, targetLanguage), JSON.stringify(analysis), { expirationTtl: CACHE_TTL_SECONDS });
-  } catch (err) {
-    console.error(`Analysis cache write failed for ${fullCacheKey(text, targetLanguage)}: ${err?.message || err}`);
-  }
+  await _cacheFullResult(env, text, targetLanguage, analysis);
 
   return new Response(JSON.stringify({
     translation: analysis.translation,
@@ -302,7 +329,62 @@ export async function handleAnalyzeTranslate(req, env, userId) {
 // Replace ACCOUNT_ID with your Cloudflare Account ID (dash.cloudflare.com → top right).
 const ANTHROPIC_GATEWAY_URL = 'https://gateway.ai.cloudflare.com/v1/eeebef75914ebf0dddf7c498417a4e41/smart-translation/anthropic/v1/messages';
 
-async function _callClaude(text, context, apiKey) {
+// Base URL for the OpenAI-compatible chat completions endpoint (token.ai.vn).
+// Standard OpenAI Chat Completions contract is assumed: POST {base}/chat/completions,
+// Authorization: Bearer <key>. Required as an explicit secret/var rather than
+// a hardcoded guess — confirm the exact base URL against token.ai.vn's own
+// docs before deploying; if it differs from the OpenAI contract (different
+// path, different auth header), this function needs adjusting to match.
+async function _callGPTDefinition(text, context, apiKey, baseUrl) {
+  if (!apiKey) throw new Error('TOKENAI_KEY is not set on this environment (check `wrangler secret list`)');
+  if (!baseUrl) throw new Error('TOKENAI_BASE_URL is not set on this environment (check `wrangler.toml` [vars])');
+
+  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      // Definition output is output-token-heavy (~110 tokens); 400 is a
+      // safety cap, matching the old Claude call's cap for this same job.
+      max_tokens: 400,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: definitionSystemPrompt() },
+        { role: 'user', content: userMessage(text, context) },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => '');
+    throw new Error(`GPT definition API ${res.status}: ${err.slice(0, 300)}`);
+  }
+
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error('Empty GPT definition response');
+
+  // Parse JSON — try direct, then regex extraction as fallback
+  try {
+    return JSON.parse(content);
+  } catch {
+    const match = content.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error('GPT definition response was not valid JSON');
+  }
+}
+
+/**
+ * Register tags + IELTS topic classification, via Claude Haiku. Independent
+ * of the definition call — classifies straight from (text, context), so it
+ * runs in parallel rather than waiting on GPT's output. Failure here is
+ * non-fatal to the caller (see _getOrBuildEnglishContent) — it degrades to
+ * empty tags/topics rather than failing the whole lookup.
+ */
+async function _callClaudeClassify(text, context, apiKey) {
   const res = await fetch(ANTHROPIC_GATEWAY_URL, {
     method: 'POST',
     headers: {
@@ -312,22 +394,22 @@ async function _callClaude(text, context, apiKey) {
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      // English-only output is ~110 tokens; 400 is a safety cap that still
-      // cuts worst-case latency vs the old 1024
-      max_tokens: 400,
-      system: systemPrompt(),
+      // Classification output is tiny (two short string arrays) — much
+      // smaller cap than the old combined definition+classify call.
+      max_tokens: 150,
+      system: classifySystemPrompt(),
       messages: [{ role: 'user', content: userMessage(text, context) }],
     }),
   });
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Claude API ${res.status}: ${err}`);
+    throw new Error(`Claude classify API ${res.status}: ${err}`);
   }
 
   const data = await res.json();
   const content = data.content?.[0]?.text;
-  if (!content) throw new Error('Empty Claude response');
+  if (!content) throw new Error('Empty Claude classify response');
 
   // Parse JSON — try direct, then regex extraction as fallback
   try {
@@ -335,7 +417,7 @@ async function _callClaude(text, context, apiKey) {
   } catch {
     const match = content.match(/\{[\s\S]*\}/);
     if (match) return JSON.parse(match[0]);
-    throw new Error('Claude response was not valid JSON');
+    throw new Error('Claude classify response was not valid JSON');
   }
 }
 

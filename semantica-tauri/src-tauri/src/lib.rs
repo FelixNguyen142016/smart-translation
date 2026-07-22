@@ -13,7 +13,9 @@ use tauri::{
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
+use tauri_plugin_updater::UpdaterExt;
 
 const SEARCH_W: f64 = 520.0;
 const SEARCH_H: f64 = 62.0;
@@ -139,20 +141,27 @@ async fn show_word_of_day(
     let token = state.auth_token.lock().unwrap().clone();
     let payload = json!({ "word": word, "token": token, "savedData": saved, "wotd": true });
 
+    // Always stash the payload and (if the window is already up) send a bare
+    // wake event — the popup pulls the payload itself via `popup_ready`. See
+    // the identical note in `show_translate_popup` for why the payload is
+    // never sent inside the event.
+    *state.pending_popup.lock().unwrap() = Some(payload);
+
     if let Some(win) = app.get_webview_window("popup") {
-        let _ = app.emit_to("popup", "analyze-word", payload);
+        let _ = app.emit_to("popup", "popup-wake", ());
         let _ = win.show();
         let _ = win.set_focus();
         return Ok(());
     }
 
-    *state.pending_popup.lock().unwrap() = Some(payload);
-
     let (x, y) = wotd_position(&app);
     // NOTE: do not auto-open DevTools here. Opening it moves OS focus to the
     // inspector, which fires WindowEvent::Focused(false) on this window and
     // trips the blur-dismiss handler below — the popup closes itself instantly.
-    // Use right-click → Inspect Element (or Cmd/Ctrl+Shift+I) to debug manually.
+    // Debug manually via right-click → Inspect Element (or Cmd/Ctrl+Shift+I)
+    // during `cargo tauri dev` — the "devtools" Cargo feature is intentionally
+    // disabled (see Cargo.toml), so this inspector is NOT available in release
+    // builds; end users can't open it.
     let build_result = WebviewWindowBuilder::new(&app, "popup", WebviewUrl::App("popup.html".into()))
         .inner_size(WOTD_W, WOTD_H)
         .position(x, y)
@@ -218,19 +227,27 @@ fn show_translate_popup(app: &AppHandle, word: &str, saved: Option<Value>) {
     let token = state.auth_token.lock().unwrap().clone();
     let payload = json!({ "word": word, "token": token, "savedData": saved });
 
-    // Reuse the popup if it is already open
+    // Always stash the payload in `pending_popup`, then wake the window if it
+    // already exists. The payload is deliberately NOT carried by the event:
+    // if the window exists but its JS hasn't registered the event listener
+    // yet (fast consecutive searches while the page is still loading), an
+    // emitted payload would be silently lost. The bridge instead pulls via
+    // `popup_ready` both on wake and once right after registering its
+    // listener, so whichever side is ready last still collects the newest
+    // payload — and newer requests simply overwrite older pending ones.
+    *state.pending_popup.lock().unwrap() = Some(payload);
+
     if let Some(win) = app.get_webview_window("popup") {
-        let _ = app.emit_to("popup", "analyze-word", payload);
+        let _ = app.emit_to("popup", "popup-wake", ());
         let _ = win.show();
         let _ = win.set_focus();
         return;
     }
 
-    *state.pending_popup.lock().unwrap() = Some(payload);
-
     let (x, y) = popup_position(app);
     // NOTE: do not auto-open DevTools here — see the identical note in
-    // show_word_of_day above. Use right-click → Inspect Element instead.
+    // show_word_of_day above. Debug manually during `cargo tauri dev` via
+    // right-click → Inspect Element — disabled in release builds.
     let build_result = WebviewWindowBuilder::new(app, "popup", WebviewUrl::App("popup.html".into()))
         .inner_size(POPUP_W, POPUP_H)
         .position(x, y)
@@ -366,6 +383,57 @@ fn show_search_bar(app: &AppHandle, anchor: Option<PhysicalPosition<f64>>) {
         .build();
 }
 
+// ── Auto-update ──────────────────────────────────────────────────────────────
+
+/// Check the update endpoint once at startup. If a newer version exists, ask
+/// the user with a native dialog; on "Install" download + verify + install,
+/// then restart into the new version. A decline is remembered for nothing —
+/// the user is simply asked again on the next launch. Every failure path is
+/// silent (logged only): the updater must never block or break normal use,
+/// e.g. when offline or when the endpoint is temporarily unreachable.
+fn check_for_updates(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let updater = match app.updater() {
+            Ok(u) => u,
+            Err(e) => {
+                eprintln!("Semantica: updater unavailable: {e}");
+                return;
+            }
+        };
+        let update = match updater.check().await {
+            Ok(Some(u)) => u,
+            Ok(None) => return, // already on the newest version
+            Err(e) => {
+                eprintln!("Semantica: update check failed: {e}");
+                return;
+            }
+        };
+
+        let version = update.version.clone();
+        let app_for_install = app.clone();
+        app.dialog()
+            .message(format!(
+                "Semantica {version} is available.\n\nInstall now? The app will restart to finish updating."
+            ))
+            .title("Update available")
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Install".to_string(),
+                "Later".to_string(),
+            ))
+            .show(move |install| {
+                if !install {
+                    return; // asked again next launch
+                }
+                tauri::async_runtime::spawn(async move {
+                    match update.download_and_install(|_, _| {}, || {}).await {
+                        Ok(()) => app_for_install.restart(),
+                        Err(e) => eprintln!("Semantica: update install failed: {e}"),
+                    }
+                });
+            });
+    });
+}
+
 // ── App entry ────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -403,6 +471,11 @@ pub fn run() {
             MacosLauncher::LaunchAgent,
             None,
         ))
+        // In-app updates: signed artifacts fetched from the public
+        // semantica-releases repo (see tauri.conf.json → plugins.updater).
+        // The check itself runs from setup() — see check_for_updates above.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             set_token,
             get_token,
@@ -437,6 +510,9 @@ pub fn run() {
         .setup(|app| {
             // Register the app to start at login (idempotent)
             let _ = app.autolaunch().enable();
+
+            // Non-blocking update check (prompts only if a new version exists)
+            check_for_updates(app.handle().clone());
 
             // System tray: left-click drops down the quick search/translate bar;
             // right-click shows a small menu.

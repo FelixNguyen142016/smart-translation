@@ -1,7 +1,9 @@
-// popup.js — Floating translate popup renderer
-// Receives a word from main process, calls /v1/analyze, renders the result.
+// popup.js — Floating translate popup renderer (ES module)
+// Receives a word from main process, calls /v1/analyze/fast + /translate, renders the result.
 
-const BACKEND_URL = 'https://smart-translation-api.fukumakino613.workers.dev';
+import { BACKEND_URL } from './api.js';
+import { escapeHtml as escHtml } from './dom-utils.js';
+import { speakText } from './audio-utils.js';
 
 let _currentWord = null;
 let _currentAnalysis = null;
@@ -192,7 +194,10 @@ function renderResult(word, a, alreadySaved = false, pendingTranslation = false)
   const wordBlock = `
     <div class="word-row">
       <div class="word">${safeWord}</div>
-      ${safePos ? `<div class="pos">${safePos}</div>` : ''}
+      <div class="word-actions">
+        ${safePos ? `<div class="pos">${safePos}</div>` : ''}
+        <button class="speaker-btn" id="speaker-btn" type="button" title="Listen" aria-label="Listen to pronunciation">🔊</button>
+      </div>
     </div>`;
   const phoneticBlock = safePhonetic ? `<div class="phonetic">${safePhonetic}</div>` : '';
   const hasMeaning = !!(safeTrans || safeNativeDef);
@@ -223,6 +228,12 @@ function renderResult(word, a, alreadySaved = false, pendingTranslation = false)
     ${wave(enDefBlock, 3)}
     ${wave(exampleBlock, 4)}
   `;
+
+  // Google TTS audio (a.audioBase64) plays if present; speakText() falls
+  // back to the Web Speech API on its own if it isn't, so the button always
+  // works regardless of whether the TTS call succeeded for this word.
+  const speakerBtn = content.querySelector('#speaker-btn');
+  if (speakerBtn) speakerBtn.addEventListener('click', () => speakText(word, a.audioBase64));
 
   renderFooter(alreadySaved ? 'already' : 'idle');
 }
@@ -290,23 +301,6 @@ async function handleSave() {
     const token = _token;
     if (!token) { renderFooter('error', 'Not logged in'); return; }
 
-    // Fetch existing vocab, check for duplicates, prepend so newest word is first
-    const getRes = await fetch(`${BACKEND_URL}/v1/vocab`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const vocabData = await getRes.json();
-    const words = vocabData.data || [];
-
-    // Check duplicates against both the typed word AND the base form we actually
-    // save (record.text uses baseForm), so "running" can't duplicate a saved "run"
-    const typedLower = _currentWord.toLowerCase();
-    const baseLower  = (_currentAnalysis.baseForm || _currentWord).toLowerCase();
-    const alreadySaved = words.some(w => {
-      const t = w.text?.toLowerCase();
-      return t === typedLower || t === baseLower;
-    });
-    if (alreadySaved) { renderFooter('already'); return; }
-
     const record = {
       // Stored lowercase so casing typos/inconsistencies never create
       // duplicate-looking vocab entries; the dashboard's pencil-edit lets the
@@ -323,15 +317,19 @@ async function handleSave() {
       stats: { seen: 0, correct: 0, skipped: 0, consecutiveCorrect: 0 },
     };
 
-    words.unshift(record);
-    const putRes = await fetch(`${BACKEND_URL}/v1/vocab`, {
-      method: 'PUT',
+    // Single-record append: the server does the read-modify-write and the
+    // duplicate check (against both text and baseForm) in one request, so a
+    // save here can't clobber a concurrent full-list write from the dashboard
+    // with a stale copy — and the payload is one record, not the whole vocab.
+    const postRes = await fetch(`${BACKEND_URL}/v1/vocab/word`, {
+      method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: words }),
+      body: JSON.stringify({ record }),
     });
 
-    if (!putRes.ok) throw new Error('Save failed');
-    renderFooter('saved');
+    if (!postRes.ok) throw new Error('Save failed');
+    const result = await postRes.json();
+    renderFooter(result.added ? 'saved' : 'already');
   } catch (err) {
     const message = err instanceof TypeError
       ? 'Could not reach the Semantica server.'
@@ -363,7 +361,10 @@ function renderWotd(word, a) {
       <div class="wotd-date">${today}</div>
       <div class="wotd-wordrow">
         <div class="wotd-word">${escHtml(word)}</div>
-        ${a.partOfSpeech ? `<span class="wotd-pos">${escHtml(a.partOfSpeech)}</span>` : ''}
+        <div class="wotd-actions-inline">
+          ${a.partOfSpeech ? `<span class="wotd-pos">${escHtml(a.partOfSpeech)}</span>` : ''}
+          <button class="wotd-speaker" id="wotd-speaker-btn" type="button" title="Listen" aria-label="Listen to pronunciation">🔊</button>
+        </div>
       </div>
       ${a.pronunciation ? `<div class="wotd-phon">${escHtml(a.pronunciation)}</div>` : ''}
       ${a.translation ? `<div class="wotd-trans">${escHtml(a.translation)}</div>` : ''}
@@ -386,14 +387,5 @@ function renderWotd(word, a) {
   footer.style.display = 'none';
   document.getElementById('wotd-close').addEventListener('click', () => window.electronAPI.closePopup());
   document.getElementById('wotd-dismiss').addEventListener('click', () => window.electronAPI.closePopup());
-}
-
-// ── Util ────────────────────────────────────────────────────────────────────
-function escHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  document.getElementById('wotd-speaker-btn')?.addEventListener('click', () => speakText(word, a.audioBase64));
 }

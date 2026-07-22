@@ -1,6 +1,6 @@
 [package]
 name = "semantica-tauri"
-version = "1.1.0"
+version = "1.4.0"
 description = "Semantica — AI vocabulary builder for B2–C1 English learners"
 edition = "2021"
 
@@ -12,9 +12,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "macos-private-api", "devtools"] }
+# "devtools" intentionally NOT enabled: this is what gates right-click →
+# Inspect Element / Cmd|Ctrl+Shift+I in release builds. Without it, `cargo
+# tauri build` output has no inspector — regular users can't open DevTools.
+# `cargo tauri dev` still gets a debugger regardless of this flag (dev builds
+# always have one), so local debugging during development is unaffected.
+tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

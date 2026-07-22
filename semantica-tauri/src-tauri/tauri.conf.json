@@ -29,7 +29,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI4NEEyOUU1OThFNjg2QTIKUldTaWh1YVk1U2xLS0JWVEhmM2xldHRXazZiNjB5eHd4alZHaGJFL2crMkYzeGlXVzdvY21LMmcK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyMEUxMjFCMkNEQUVBM0MKUldRODZ0b3NHeElPRWxJVGFuSzFKc1NNalRSVDZPM2JHa3NpeUlOTWhMd2RXOFdHT0ZlSUl4YngK",
       "endpoints": [
         "https://github.com/FelixNguyen142016/semantica-releases/releases/latest/download/latest.json"
       ]

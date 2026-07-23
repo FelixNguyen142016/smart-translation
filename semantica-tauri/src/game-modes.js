@@ -6,9 +6,16 @@
 // ─── Race Mode ────────────────────────────────────────────────────────────────
 
 export class RaceMode {
-  constructor(onTick, onGameOver) {
+  /**
+   * @param {number} drainRate - progress lost per 200ms tick. Difficulty knob:
+   *   Medium is the original 0.8; Easy drains 1.5× slower (the "time frame is
+   *   1.5× longer than Medium" spec — same idle progress lasts 1.5× as long);
+   *   Hard drains 1.5× faster (shortest time). See RACE_DRAIN_RATES in
+   *   game-controller.js for the three values.
+   */
+  constructor(onTick, onGameOver, drainRate = 0.8) {
     this.progress = 50;
-    this.drainRate = 0.8;
+    this.drainRate = drainRate;
     this.intervalId = null;
     this.onTick = onTick;
     this.onGameOver = onGameOver;
@@ -120,11 +127,34 @@ export class MissionMode {
   }
 
   static defaultObjectives() {
-    return [
-      { type: 'correct',   label: 'Answer correctly', target: 10, current: 0 },
-      { type: 'accuracy',  label: 'Accuracy ≥ 80%',   target: 80, current: 0 },
-      { type: 'no_hints',  label: 'No-hint streak',   target: 3,  current: 0 }
-    ];
+    // Kept as the Medium tier for backward compatibility — a bare
+    // `new MissionMode()` still behaves exactly as before difficulties existed.
+    return MissionMode.objectivesForDifficulty('medium');
+  }
+
+  /**
+   * Objective sets per difficulty. Medium is the original (pre-difficulty)
+   * criteria unchanged; Easy lowers every bar, Hard raises them.
+   */
+  static objectivesForDifficulty(difficulty) {
+    const tiers = {
+      easy: [
+        { type: 'correct',   label: 'Answer correctly', target: 6,  current: 0 },
+        { type: 'accuracy',  label: 'Accuracy ≥ 65%',   target: 65, current: 0 },
+        { type: 'no_hints',  label: 'No-hint streak',   target: 2,  current: 0 },
+      ],
+      medium: [
+        { type: 'correct',   label: 'Answer correctly', target: 10, current: 0 },
+        { type: 'accuracy',  label: 'Accuracy ≥ 80%',   target: 80, current: 0 },
+        { type: 'no_hints',  label: 'No-hint streak',   target: 3,  current: 0 },
+      ],
+      hard: [
+        { type: 'correct',   label: 'Answer correctly', target: 15, current: 0 },
+        { type: 'accuracy',  label: 'Accuracy ≥ 90%',   target: 90, current: 0 },
+        { type: 'no_hints',  label: 'No-hint streak',   target: 5,  current: 0 },
+      ],
+    };
+    return tiers[difficulty] || tiers.medium;
   }
 
   onCorrect(hintUsed) {

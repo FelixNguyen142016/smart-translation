@@ -4,7 +4,8 @@
 
 import { getWords, deleteWord, updateWord, saveWord, getSettings, saveSettings } from './storage-shim.js';
 import { initGame, pauseGameSession, resumeGameSession } from './game-controller.js';
-import { applyTheme, applyHueTheme, VISUAL_PRESET_GROUPS, getVisualPreset, applyVisualPreset } from './theme.js';
+import { FSRS_FILTERS, getFsrsFilter, renderFsrsFilterPills, hasFsrsCard } from './fsrs-filters.js';
+import { applyAccentHex, hexToHslParts, VISUAL_PRESET_GROUPS, getVisualPreset, applyVisualPreset } from './theme.js';
 import { nextLearningState } from './game-engine.js';
 import { fsrs, Rating, State as FsrsState, createEmptyCard } from './fsrs-vendor.js';
 import { escapeHtml } from './dom-utils.js';
@@ -15,6 +16,9 @@ import {
   apiImportWords,
   apiRequestCode,
   apiVerifyCode,
+  apiCreateCheckout,
+  apiGetOrder,
+  apiGetBillingStatus,
   setAuthSession,
   clearAuthSession,
   isLoggedIn,
@@ -303,40 +307,178 @@ document.addEventListener('DOMContentLoaded', async () => {
   const saveMsg           = document.getElementById('save-msg');
 
   const currentSettings = getSettings();
-  if (currentSettings.accentHue !== undefined) {
-    applyHueTheme(currentSettings.accentHue, currentSettings.darkMode);
-  } else {
-    applyTheme(currentSettings);
+
+  // ── Accent Color Picker (saturation/brightness board + hue rail) ─────────
+  // Vanilla port of the AccentColorPicker React component: HSV board, hue
+  // rail, hex input with validation, RGB readout, and 12 preset swatches.
+  // Replaces the old hue-only slider — the stored `accentColor` hex is the
+  // source of truth; `accentHue` is still saved (derived) for back-compat
+  // with settings written before this picker existed.
+  const ACCENT_PRESETS = [
+    // Row 1 — cool/brand
+    '#06b6d4', '#38bdf8', '#6366f1', '#8b5cf6', '#ec4899', '#ef4444',
+    // Row 2 — warm/nature
+    '#f97316', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#64748b',
+  ];
+
+  function hexToHsv(hex) {
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    let h = 0;
+    if (d) {
+      if (max === r) h = ((g - b) / d + 6) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h = Math.round(h * 60);
+    }
+    const s = max ? Math.round((d / max) * 100) : 0;
+    const v = Math.round(max * 100);
+    return [h, s, v];
   }
+
+  function hsvToHex(h, s, v) {
+    s /= 100; v /= 100;
+    const f = (n) => {
+      const k = (n + h / 60) % 6;
+      return v - v * s * Math.max(0, Math.min(k, 4 - k, 1));
+    };
+    const toHex = (x) => Math.round(x * 255).toString(16).padStart(2, '0');
+    return `#${toHex(f(5))}${toHex(f(3))}${toHex(f(1))}`;
+  }
+
+  // Migration: prefer the stored hex; fall back to converting the legacy
+  // accentHue (which always rendered as hsl(hue, 85%, 55%)) to its hex.
+  function legacyHueToHex(hue) {
+    // hsl(h, 85%, 55%) → hsv-ish conversion via a tiny canvas-free path:
+    // compute HSL→RGB directly.
+    const h = ((hue % 360) + 360) % 360, s = 0.85, l = 0.55;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - c / 2;
+    const [r, g, b] =
+      h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] :
+      h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+    const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  let _accentHex = /^#[0-9a-fA-F]{6}$/.test(currentSettings.accentColor || '')
+    ? currentSettings.accentColor.toLowerCase()
+    : legacyHueToHex(currentSettings.accentHue ?? 190);
+  let _accentHsv = hexToHsv(_accentHex);
+
+  applyAccentHex(_accentHex, currentSettings.darkMode);
 
   const loggedIn = isLoggedIn();
   const defaultProvider = loggedIn ? 'cloud' : 'freedict';
   aiProviderSelect.value = currentSettings.provider || defaultProvider;
 
-  // Accent hue slider
-  const hueSlider  = document.getElementById('accent-hue');
-  const huePreview = document.getElementById('hue-preview');
+  const accentBoard      = document.getElementById('accent-board');
+  const accentBoardThumb = document.getElementById('accent-board-thumb');
+  const accentHueRail    = document.getElementById('accent-hue-rail');
+  const accentHueThumb   = document.getElementById('accent-hue-thumb');
+  const accentHexInput   = document.getElementById('accent-hex-input');
+  const accentRgbReadout = document.getElementById('accent-rgb-readout');
+  const accentSwatch     = document.getElementById('accent-current-swatch');
+  const accentPresetGrid = document.getElementById('accent-preset-grid');
 
-  hueSlider.value = currentSettings.accentHue ?? 190;
-  updateHuePreview(hueSlider.value);
-
-  hueSlider.addEventListener('input', () => {
-    const hue = parseInt(hueSlider.value, 10);
-    applyHueTheme(hue, darkToggle.checked);
-    updateHuePreview(hue);
-  });
-
-  function updateHuePreview(hue) {
-    const color = `hsl(${hue}, 85%, 55%)`;
-    huePreview.style.background = color;
-    hueSlider.style.accentColor = color;
+  /** Redraw every picker element from _accentHex/_accentHsv and re-apply the theme. */
+  function syncAccentPicker({ skipHexInput = false } = {}) {
+    const [h, s, v] = _accentHsv;
+    if (accentBoard)      accentBoard.style.background = `hsl(${h}, 100%, 50%)`;
+    if (accentBoardThumb) {
+      accentBoardThumb.style.left = `${s}%`;
+      accentBoardThumb.style.top  = `${100 - v}%`;
+      accentBoardThumb.style.background = _accentHex;
+    }
+    if (accentHueThumb) {
+      accentHueThumb.style.left = `${(h / 360) * 100}%`;
+      accentHueThumb.style.background = `hsl(${h}, 100%, 50%)`;
+    }
+    if (accentSwatch) accentSwatch.style.background = _accentHex;
+    if (accentHexInput && !skipHexInput) {
+      accentHexInput.value = _accentHex;
+      accentHexInput.classList.remove('hex-error');
+    }
+    if (accentRgbReadout) {
+      accentRgbReadout.textContent =
+        `${parseInt(_accentHex.slice(1, 3), 16)} ${parseInt(_accentHex.slice(3, 5), 16)} ${parseInt(_accentHex.slice(5, 7), 16)}`;
+    }
+    renderAccentPresetSwatches();
+    applyAccentHex(_accentHex, darkToggle.checked);
   }
+
+  function setAccentHex(hex, opts) {
+    _accentHex = hex.toLowerCase();
+    _accentHsv = hexToHsv(_accentHex);
+    syncAccentPicker(opts);
+  }
+
+  function renderAccentPresetSwatches() {
+    if (!accentPresetGrid) return;
+    accentPresetGrid.innerHTML = '';
+    ACCENT_PRESETS.forEach(color => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'accent-preset-swatch';
+      btn.style.background = color;
+      btn.title = color;
+      if (_accentHex === color.toLowerCase()) {
+        btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5L4 7L8 3" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      }
+      btn.addEventListener('click', () => setAccentHex(color));
+      accentPresetGrid.appendChild(btn);
+    });
+  }
+
+  // Board drag: x = saturation, y = brightness (inverted); hue rail drag: x = hue.
+  let _accentDragging = null; // 'board' | 'hue' | null
+  function pickFromBoard(e) {
+    if (!accentBoard) return;
+    const r = accentBoard.getBoundingClientRect();
+    const s = Math.round(Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1) * 100);
+    const v = Math.round((1 - Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1)) * 100);
+    _accentHsv = [_accentHsv[0], s, v];
+    _accentHex = hsvToHex(..._accentHsv);
+    syncAccentPicker();
+  }
+  function pickFromHueRail(e) {
+    if (!accentHueRail) return;
+    const r = accentHueRail.getBoundingClientRect();
+    const h = Math.round(Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1) * 360);
+    _accentHsv = [h, _accentHsv[1], _accentHsv[2]];
+    _accentHex = hsvToHex(..._accentHsv);
+    syncAccentPicker();
+  }
+  accentBoard?.addEventListener('mousedown', (e) => { _accentDragging = 'board'; pickFromBoard(e); });
+  accentHueRail?.addEventListener('mousedown', (e) => { _accentDragging = 'hue'; pickFromHueRail(e); });
+  document.addEventListener('mousemove', (e) => {
+    if (_accentDragging === 'board') pickFromBoard(e);
+    else if (_accentDragging === 'hue') pickFromHueRail(e);
+  });
+  document.addEventListener('mouseup', () => { _accentDragging = null; });
+
+  // Hex input: apply on every valid 6-digit value; flag invalid ones without
+  // fighting the user mid-typing.
+  accentHexInput?.addEventListener('input', () => {
+    const raw = accentHexInput.value.trim();
+    const withHash = raw.startsWith('#') ? raw : `#${raw}`;
+    if (/^#[0-9a-fA-F]{6}$/.test(withHash)) {
+      setAccentHex(withHash, { skipHexInput: true });
+      accentHexInput.classList.remove('hex-error');
+    } else {
+      accentHexInput.classList.toggle('hex-error', raw.length > 0);
+    }
+  });
+  accentHexInput?.addEventListener('blur', () => syncAccentPicker()); // normalize display
 
   // Dark mode toggle (settings page)
   const darkToggle = document.getElementById('dark-mode-toggle');
   darkToggle.checked = !!currentSettings.darkMode;
   darkToggle.addEventListener('change', () => {
-    applyHueTheme(parseInt(hueSlider.value, 10), darkToggle.checked);
+    applyAccentHex(_accentHex, darkToggle.checked);
     navDarkBtn.textContent = darkToggle.checked ? '☀️' : '🌙';
   });
 
@@ -345,9 +487,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   navDarkBtn.textContent = currentSettings.darkMode ? '☀️' : '🌙';
   navDarkBtn.addEventListener('click', () => {
     darkToggle.checked = !darkToggle.checked;
-    applyHueTheme(parseInt(hueSlider.value, 10), darkToggle.checked);
+    applyAccentHex(_accentHex, darkToggle.checked);
     navDarkBtn.textContent = darkToggle.checked ? '☀️' : '🌙';
   });
+
+  syncAccentPicker();
 
   // ── Visual Theme presets ──────────────────────────────────────────────────
   // Independent from the hue slider and Dark Mode toggle above: a preset only
@@ -364,7 +508,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const customControlsEl      = document.getElementById('custom-theme-controls');
 
   function renderVisualPresetPicker() {
-    customControlsEl.style.display = _activeVisualPresetId ? 'none' : 'block';
+    // Always visible (user decision, 20-07): the accent picker stays usable
+    // while a preset is active, since presets only set surfaces/text and the
+    // accent remains independent — hiding it made changing the accent under
+    // a preset needlessly hard.
+    customControlsEl.style.display = 'block';
     presetGroupsEl.innerHTML = '';
 
     // ── "Custom" — first tile, always present. Selecting it clears the
@@ -455,12 +603,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const newSettings = {
       provider: aiProviderSelect.value,
       targetLanguage: 'Vietnamese', // fixed: Semantica is English → Vietnamese
-      accentHue: parseInt(hueSlider.value, 10),
+      accentColor: _accentHex,
+      // Derived hue kept for backward compatibility with pre-picker settings
+      // readers (anything still branching on accentHue keeps working).
+      accentHue: hexToHslParts(_accentHex).h,
       darkMode: darkToggle.checked,
       visualPreset: _activeVisualPresetId,
     };
     await saveSettings(newSettings);
-    applyHueTheme(newSettings.accentHue, newSettings.darkMode);
+    applyAccentHex(_accentHex, newSettings.darkMode);
     saveMsg.style.opacity = 1;
     setTimeout(() => { saveMsg.style.opacity = 0; }, 2000);
   });
@@ -1865,6 +2016,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     document.getElementById('acct-logout').addEventListener('click', handleLogout);
+
+    document.getElementById('premium-btn-monthly').addEventListener('click', () => startPremiumCheckout('monthly'));
+    document.getElementById('premium-btn-annual').addEventListener('click', () => startPremiumCheckout('annual'));
+    document.getElementById('premium-checkout-cancel').addEventListener('click', cancelPremiumCheckout);
   }
 
   async function handleSendCode() {
@@ -1968,6 +2123,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch {
       updateSyncStatus('Offline — using local data');
     }
+
+    refreshPremiumState();
   }
 
   function showLoggedOutState() {
@@ -1977,6 +2134,91 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('acct-code').value                = '';
     document.getElementById('acct-send-error').style.display  = 'none';
     document.getElementById('acct-verify-error').style.display = 'none';
+
+    document.getElementById('premium-card').style.display = 'none';
+    stopPremiumPolling();
+  }
+
+  // ─── Premium (SePay checkout) ─────────────────────────────────────────────
+  let _premiumPollTimer = null;
+
+  async function refreshPremiumState() {
+    const card = document.getElementById('premium-card');
+    if (!card) return;
+    try {
+      const { isPro, planExpiresAt } = await apiGetBillingStatus();
+      document.getElementById('premium-checkout-state').style.display = 'none';
+      if (isPro) {
+        document.getElementById('premium-free-state').style.display   = 'none';
+        document.getElementById('premium-active-state').style.display = 'block';
+        const expiry = new Date(planExpiresAt * 1000);
+        document.getElementById('premium-expiry').textContent =
+          `Active until ${expiry.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`;
+      } else {
+        document.getElementById('premium-active-state').style.display = 'none';
+        document.getElementById('premium-free-state').style.display   = 'block';
+      }
+      card.style.display = 'block';
+    } catch (err) {
+      // Backend not reachable — don't show a half-broken billing card
+      console.error('Semantica: failed to load billing status', err);
+      card.style.display = 'none';
+    }
+  }
+
+  async function startPremiumCheckout(plan) {
+    const errEl = document.getElementById('premium-checkout-error');
+    errEl.style.display = 'none';
+    try {
+      const order = await apiCreateCheckout(plan);
+      document.getElementById('premium-free-state').style.display     = 'none';
+      document.getElementById('premium-checkout-state').style.display = 'block';
+      document.getElementById('premium-qr-img').src = order.qrUrl;
+      document.getElementById('premium-order-id').textContent = order.transferContent;
+      document.getElementById('premium-checkout-status-text').textContent = 'Waiting for payment…';
+      pollPremiumOrder(order.orderId);
+    } catch (err) {
+      errEl.textContent   = err.message || 'Could not start checkout.';
+      errEl.style.display = 'block';
+    }
+  }
+
+  function pollPremiumOrder(orderId) {
+    stopPremiumPolling();
+    const startedAt = Date.now();
+    const POLL_INTERVAL_MS = 3000;
+    const GIVE_UP_AFTER_MS = 10 * 60 * 1000; // matches the QR's practical usable window
+
+    _premiumPollTimer = setInterval(async () => {
+      if (Date.now() - startedAt > GIVE_UP_AFTER_MS) {
+        stopPremiumPolling();
+        const statusText = document.getElementById('premium-checkout-status-text');
+        if (statusText) statusText.textContent = 'No payment detected yet — you can try again.';
+        return;
+      }
+      try {
+        const order = await apiGetOrder(orderId);
+        if (order.status === 'paid') {
+          stopPremiumPolling();
+          await refreshPremiumState();
+        }
+      } catch {
+        // transient network hiccup — keep polling, next tick will retry
+      }
+    }, POLL_INTERVAL_MS);
+  }
+
+  function stopPremiumPolling() {
+    if (_premiumPollTimer) {
+      clearInterval(_premiumPollTimer);
+      _premiumPollTimer = null;
+    }
+  }
+
+  function cancelPremiumCheckout() {
+    stopPremiumPolling();
+    document.getElementById('premium-checkout-state').style.display = 'none';
+    document.getElementById('premium-free-state').style.display     = 'block';
   }
 
   function updateSyncStatus(text) {
@@ -2003,10 +2245,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // dates, exactly as before this change.
   const fsrsScheduler = fsrs();
 
-  /** True once a word has gone through at least one FSRS review (vs. never-reviewed or pre-migration legacy SM-2 data). */
-  function hasFsrsCard(word) {
-    return typeof word.srs?.stability === 'number';
-  }
+  // hasFsrsCard now lives in fsrs-filters.js (imported at top) — shared with
+  // the Game tab's word-pool filter alongside FSRS_FILTERS itself.
 
   /** Rebuild an ts-fsrs Card object from a word's persisted (plain-JSON) srs fields. */
   function toFsrsCard(word) {
@@ -2072,73 +2312,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     return { label: `In ${days} days`, color: '#22c55e' };
   }
 
-  // ─── FSRS study filters (shared by Review + Practice tabs) ──────────────────
-  // Stability (ts-fsrs's `stability` field) is roughly "days until recall
-  // probability drops to ~90% without another review" — these thresholds are
-  // a reasonable day-scale default (Anki's own young/mature boundary is a
-  // similar ~21-day mark) and can be tuned if they don't feel right in practice.
-  const STRUGGLING_STABILITY_MAX = 7;   // forgets within a week = struggling
-  const MASTERED_STABILITY_MIN   = 21;  // holds for 3+ weeks = mastered
-
-  /**
-   * The 5 filters exposed as pills on both the Review and Practice tabs.
-   * Each `predicate` takes a word and returns whether it belongs in that
-   * filter's queue. Order here is also display order, with 'due' as the
-   * default selected on entry to either tab.
-   */
-  const FSRS_FILTERS = [
-    {
-      id: 'due', label: 'Due Today',
-      predicate: w => !!w.srs?.dueDate && w.srs.dueDate <= Date.now(),
-    },
-    {
-      id: 'new', label: 'New Words',
-      predicate: w => !hasFsrsCard(w) || w.srs?.fsrsState === FsrsState.New,
-    },
-    {
-      id: 'struggling', label: 'Struggling',
-      predicate: w =>
-        w.srs?.lastRating === Rating.Again || w.srs?.lastRating === Rating.Hard ||
-        (hasFsrsCard(w) && w.srs.stability < STRUGGLING_STABILITY_MAX) ||
-        w.srs?.fsrsState === FsrsState.Relearning,
-    },
-    {
-      id: 'mastered', label: 'Mastered',
-      predicate: w =>
-        (hasFsrsCard(w) && w.srs.stability >= MASTERED_STABILITY_MIN) ||
-        w.srs?.lastRating === Rating.Easy,
-    },
-    {
-      id: 'all', label: 'All Words',
-      predicate: () => true,
-    },
-  ];
-
-  function getFsrsFilter(id) {
-    return FSRS_FILTERS.find(f => f.id === id) ?? FSRS_FILTERS[0];
-  }
-
-  /**
-   * Render a row of FSRS filter pills into `containerId`, calling
-   * `onSelect(filterId)` when clicked. Shared markup/behavior for both the
-   * Review strip (alongside its overdue/due-today/upcoming/new counts) and
-   * the Practice strip (which has no such counts, just the pills).
-   */
-  function renderFsrsFilterPills(containerId, words, activeId, onSelect) {
-    const wrap = document.getElementById(containerId);
-    if (!wrap) return;
-    wrap.innerHTML = FSRS_FILTERS.map(f => {
-      const count  = words.filter(f.predicate).length;
-      const active = f.id === activeId;
-      const style  = active
-        ? 'background:linear-gradient(135deg,var(--brand),var(--brand-2));color:#fff;border:none;'
-        : 'background:var(--brand-soft);color:var(--brand);border:1px solid var(--brand-border);';
-      return `<button class="fsrs-filter-btn" data-filter="${f.id}" style="font-size:12px;padding:5px 12px;border-radius:8px;cursor:pointer;font-weight:600;font-family:inherit;${style}">${escapeHtml(f.label)} (${count})</button>`;
-    }).join('');
-    wrap.querySelectorAll('.fsrs-filter-btn').forEach(btn => {
-      btn.onclick = () => onSelect(btn.dataset.filter);
-    });
-  }
+  // ─── FSRS study filters ─────────────────────────────────────────────────────
+  // FSRS_FILTERS / getFsrsFilter / renderFsrsFilterPills now live in
+  // fsrs-filters.js (imported at top) — shared by the Review, Practice, AND
+  // Game tabs so the filter definitions can never drift apart.
 
   // ─── Review Mode ─────────────────────────────────────────────────────────────
   let reviewQueue        = [];

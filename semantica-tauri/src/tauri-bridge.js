@@ -26,10 +26,16 @@
     showWordOfDay: (word) => invoke('show_word_of_day', { word }),
     onAnalyzeWord: (cb) => {
       const dispatch = (p) => { if (p) cb(p.word, p.token ?? null, p.savedData ?? null, p.wotd ?? false); };
-      // Popup reuse: subsequent words arrive as events
-      listen('analyze-word', (e) => dispatch(e.payload));
-      // First open: the payload was stored in Rust before this page loaded
-      invoke('popup_ready').then(dispatch).catch(() => {});
+      // Pull-based handoff: Rust always stashes the payload in `pending_popup`
+      // and emits a bare `popup-wake` event; the payload itself never rides on
+      // the event. We pull via `popup_ready` (which take()s the stash) on
+      // every wake, plus once right after the listener is registered — that
+      // initial pull covers any word that arrived while this page was still
+      // loading, so no request can fall into the listener-registration gap.
+      // Double-pulls are safe: take() returns null the second time and
+      // dispatch() ignores null.
+      const pull = () => invoke('popup_ready').then(dispatch).catch(() => {});
+      listen('popup-wake', pull).then(pull);
     },
 
     // ── search bar window ────────────────────────────────────────────────

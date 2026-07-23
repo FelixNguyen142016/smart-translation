@@ -34,6 +34,10 @@ export function renderResults(profile, sessionStats, newAchievements, raceLog = 
   if (!el) return;
   const accuracy = sessionStats.totalAnswered > 0
     ? Math.round((sessionStats.correct / sessionStats.totalAnswered) * 100) : 0;
+  // Games are status-neutral (they never change a word's learning status), so
+  // the old "Mastered" tile could only ever show 0 — show Missed instead,
+  // which pairs with the results screen's "Learn missed words" walkthrough.
+  const missed = Math.max(0, sessionStats.totalAnswered - sessionStats.correct);
   const titlesHtml = profile.titles?.length
     ? `<div class="results-titles">${profile.titles.map(t => `<span class="results-title-badge">${escapeHtml(t)}</span>`).join('')}</div>`
     : '';
@@ -65,7 +69,7 @@ export function renderResults(profile, sessionStats, newAchievements, raceLog = 
   el.innerHTML = `
     <div class="results-stat"><span class="rs-big">${sessionStats.correct}</span><span>Correct</span></div>
     <div class="results-stat"><span class="rs-big">${accuracy}%</span><span>Accuracy</span></div>
-    <div class="results-stat"><span class="rs-big">${sessionStats.wordsMastered}</span><span>Mastered</span></div>
+    <div class="results-stat"><span class="rs-big">${missed}</span><span>Missed</span></div>
     ${extraStatHtml}
     <div class="results-level">Level ${profile.level} · ${formatXPBar(profile)}</div>
     ${titlesHtml}

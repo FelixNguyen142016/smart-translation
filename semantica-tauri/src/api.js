@@ -56,11 +56,6 @@ export function getCachedWords() {
   return _wordCache;
 }
 
-/** Check if cache has been loaded at least once */
-export function isCacheLoaded() {
-  return _cacheLoaded;
-}
-
 /** Push the full word cache to the backend */
 async function pushVocab() {
   const token = getToken();
@@ -213,6 +208,38 @@ export async function apiAnalyzeText(text, context, targetLanguage) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Analysis failed.');
   return data;
+}
+
+// ─── Billing (SePay) ────────────────────────────────────────────────────────
+
+/** Create a pending checkout order and get back a VietQR image URL. */
+export async function apiCreateCheckout(plan) {
+  const res = await fetch(`${BACKEND_URL}/v1/billing/checkout`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ plan }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not start checkout.');
+  return data; // { orderId, plan, label, amount, bankAccount, bankName, transferContent, qrUrl }
+}
+
+/** Current plan status for the logged-in user — { isPro, planExpiresAt }. */
+export async function apiGetBillingStatus() {
+  const res = await fetch(`${BACKEND_URL}/v1/billing/status`, { headers: authHeaders() });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not check plan status.');
+  return data;
+}
+
+/** Poll an order's status — 'pending' until the SePay webhook confirms it, then 'paid'. */
+export async function apiGetOrder(orderId) {
+  const res = await fetch(`${BACKEND_URL}/v1/billing/order/${encodeURIComponent(orderId)}`, {
+    headers: authHeaders(),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Could not check order status.');
+  return data; // { id, plan, amount, status, created_at, paid_at }
 }
 
 // ─── Session helpers ──────────────────────────────────────────────────────────

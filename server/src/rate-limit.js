@@ -2,10 +2,16 @@
 // KV-based rate limiter. Key format: rl_{type}_{userId}_{yyyymmdd}
 // TTL auto-resets at midnight UTC. Tolerates rare double-counts on race conditions (acceptable for v1).
 
-/** Daily limits per user */
+/** Daily limits per user — free tier */
 const LIMITS = {
   analyze:   50,   // /v1/analyze
   translate: 200,  // /v1/translate
+};
+
+/** Daily limits per user — active paid plan (plan_expires_at in the future) */
+const PRO_LIMITS = {
+  analyze:   500,
+  translate: 2000,
 };
 
 /**
@@ -13,10 +19,11 @@ const LIMITS = {
  * @param {KVNamespace} kv
  * @param {string} userId
  * @param {'analyze'|'translate'} type
+ * @param {boolean} isPro
  * @returns {{ allowed: boolean, remaining: number, limit: number }}
  */
-export async function checkRateLimit(kv, userId, type) {
-  const limit = LIMITS[type];
+export async function checkRateLimit(kv, userId, type, isPro = false) {
+  const limit = (isPro ? PRO_LIMITS[type] : LIMITS[type]) ?? LIMITS[type];
   if (!limit) return { allowed: true, remaining: 999, limit: 999 };
 
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, ''); // yyyymmdd

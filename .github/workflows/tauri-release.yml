@@ -11,6 +11,18 @@ name: Build & Release Semantica (Tauri)
 # attached. Manual runs (workflow_dispatch) only validate that the build
 # pipeline still works — no tagName is set, so tauri-action builds but does
 # not publish anything, avoiding stray draft releases from test runs.
+#
+# AUTO-UPDATER: releases are published to the PUBLIC `semantica-releases`
+# repo (this repo is private, and the in-app updater can't download private
+# release assets). tauri-action signs the update artifacts with the
+# TAURI_SIGNING_PRIVATE_KEY secret and generates/merges `latest.json`, which
+# the app polls at startup (see tauri.conf.json → plugins.updater).
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   RELEASES_REPO_TOKEN                 — fine-grained PAT with Contents:
+#                                         read+write on semantica-releases
+#   TAURI_SIGNING_PRIVATE_KEY           — content of the updater private key
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  — its password (empty string if none)
 
 on:
   push:
@@ -53,14 +65,46 @@ jobs:
         with:
           workspaces: './semantica-tauri/src-tauri -> target'
 
+      # Fail fast with a clear message if the signing secrets aren't visible
+      # to this workflow. `secrets.X` silently expands to "" when the secret
+      # doesn't exist under that exact name as a REPOSITORY secret of THIS
+      # repo — which otherwise surfaces 20 minutes later as Tauri's confusing
+      # "A public key has been found, but no private key" build error.
+      - name: Verify signing secrets are configured
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty. Add it as a Repository secret (Settings → Secrets and variables → Actions → Repository secrets) in THIS repo — not the Variables tab, not an Environment secret, not the releases repo. Value = full content of the .key file."
+            exit 1
+          fi
+          if [ -z "${{ secrets.RELEASES_REPO_TOKEN }}" ]; then
+            echo "::error::RELEASES_REPO_TOKEN is empty — release publishing to semantica-releases will fail. Add the fine-grained PAT as a Repository secret."
+            exit 1
+          fi
+          echo "Signing + release secrets present."
+
       - uses: tauri-apps/tauri-action@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with write access to the public releases repo — the default
+          # GITHUB_TOKEN can't create releases outside this repository.
+          GITHUB_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: semantica-tauri
+          # Publish to the public releases repo; the tag is created there on
+          # its default branch (releaseCommitish is required when the target
+          # repo differs from the one the workflow runs in).
+          owner: FelixNguyen142016
+          repo: semantica-releases
+          releaseCommitish: main
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Semantica {0}', github.ref_name) || '' }}
-          releaseBody: 'See the assets below to download and install.'
+          releaseBody: 'See the assets below to download and install. Installed apps update themselves automatically.'
           releaseDraft: false
           prerelease: false
+          # Windows builds produce both .msi and NSIS setup.exe ("targets":
+          # "all") — prefer NSIS for updates: it supports fully silent
+          # in-place upgrades, which matches the in-app updater UX.
+          updaterJsonPreferNsis: true
           args: ${{ matrix.args }}

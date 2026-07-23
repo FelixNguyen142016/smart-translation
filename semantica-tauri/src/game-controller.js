@@ -2,13 +2,14 @@
 // Main game state machine: screen routing, gameplay loop, hint/skip handling
 // Adapted from dashboard/game-controller.js: import paths updated to local renderer/
 
-import { getWords, updateWord } from './storage-shim.js';
-import { selectNextWord, nextLearningState, updateStats, calcXP, checkAchievements, maxHintsForLevel } from './game-engine.js';
+import { getWords } from './storage-shim.js';
+import { selectNextWord, calcXP, checkAchievements, maxHintsForLevel } from './game-engine.js';
 import { getProfile, addXP, recordSession, unlockAchievement } from './player.js';
 import { RaceMode, SurvivalMode, MissionMode, QuickEarMode } from './game-modes.js';
 import { renderMenu, renderResults, renderMissionObjectives, renderReview } from './game-render.js';
 import { escapeHtml } from './dom-utils.js';
-import { speakText } from './audio-utils.js';
+import { speakText, createSpeakerButton } from './audio-utils.js';
+import { getFsrsFilter, renderFsrsFilterPills } from './fsrs-filters.js';
 import {
   mountRaceScene, isRaceSceneAvailable, setRaceProgress, resetRaceScene,
   raceCorrect, raceWrong, raceSkip, raceWin, raceLose,
@@ -50,6 +51,31 @@ let quickEarQueue = [], quickEarWordLimit = 10;
 let quickEarLog = []; // [{ word, correct, skipped }]
 const QE_ROUND_SECONDS = 15;
 let _qeTimerId = null, _qeTimeLeft = QE_ROUND_SECONDS, _qeReplayCount = 0;
+
+// ─── Difficulty (Race + Mission) ────────────────────────────────────────────
+// Race: difficulty scales the drain rate. Medium is the original 0.8/tick;
+// Easy makes the time frame 1.5× longer (drain 1.5× slower), Hard 1.5×
+// shorter (drain 1.5× faster) — symmetric around the pre-difficulty default.
+// Mission: difficulty picks an objective tier (see MissionMode.
+// objectivesForDifficulty). Survival/Quick Ear ignore difficulty for now.
+const RACE_DRAIN_RATES = { easy: 0.8 / 1.5, medium: 0.8, hard: 0.8 * 1.5 };
+let selectedDifficulty = 'medium';
+
+// ─── Word-pool filter (FSRS type filter, shared with Review/Practice) ───────
+// Filters which words a session draws from (Due Today / New / Struggling /
+// Mastered / All). Games are strictly "extra practice": playing a word here
+// never changes its learning status — no FSRS update, no learningState/stats
+// write — so drilling e.g. "Due Today" words in a game leaves them still due
+// for a real Review session. 'all' default preserves pre-filter behavior.
+let selectedGameFilter = 'all';
+// The filtered pool the active session draws from (Survival/Mission's
+// selectNextWord uses this; Race/Quick Ear build their queues from it).
+let sessionPool = [];
+
+// Every word answered wrong / skipped / timed out this session (deduped) —
+// offered as a post-game "Learn missed words" walkthrough on the results screen.
+let missedWords = [];
+let _missedLearnIndex = 0;
 
 // Fisher-Yates shuffle (returns a new array) — replaces the statistically
 // biased `.sort(() => Math.random() - 0.5)` that was duplicated for both
@@ -319,7 +345,10 @@ export function initGame() {
   if (gameInitialized) return;
   gameInitialized = true;
 
-  document.getElementById('btn-play')?.addEventListener('click', () => showScreen('screen-mode'));
+  document.getElementById('btn-play')?.addEventListener('click', () => {
+    _renderGameFilterPills(); // counts may have changed since last visit
+    showScreen('screen-mode');
+  });
   document.getElementById('btn-review')?.addEventListener('click', () => { renderReview(); showScreen('screen-review'); });
   // Scoped to #screen-mode: .mode-card is shared with the Practice tab's own
   // mode picker (index.html #practice-screen-modes), which uses the same CSS
@@ -339,7 +368,31 @@ export function initGame() {
       // Show/hide Quick Ear word-count selector (same pattern as Race's)
       const quickEarPicker = document.getElementById('quickear-word-count-wrap');
       if (quickEarPicker) quickEarPicker.style.display = selectedMode === 'quickear' ? 'flex' : 'none';
+      // Difficulty applies to Race (timer speed) and Mission (objective tier)
+      const diffWrap = document.getElementById('game-difficulty-wrap');
+      if (diffWrap) diffWrap.style.display = (selectedMode === 'race' || selectedMode === 'mission') ? 'flex' : 'none';
     });
+  });
+
+  // Difficulty buttons (Race + Mission) — one selected at a time, Medium default
+  document.querySelectorAll('#game-difficulty-wrap .difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#game-difficulty-wrap .difficulty-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedDifficulty = btn.dataset.difficulty;
+    });
+  });
+
+  // FSRS word-type filter pills (all modes)
+  _renderGameFilterPills();
+
+  // Post-game "Learn missed words" walkthrough
+  document.getElementById('btn-learn-missed')?.addEventListener('click', _openMissedLearn);
+  document.getElementById('missed-learn-prev')?.addEventListener('click', () => _showMissedCard(_missedLearnIndex - 1));
+  document.getElementById('missed-learn-next')?.addEventListener('click', () => _showMissedCard(_missedLearnIndex + 1));
+  document.getElementById('missed-learn-close')?.addEventListener('click', () => {
+    const area = document.getElementById('missed-learn-area');
+    if (area) area.style.display = 'none';
   });
 
   // Race word-count selector (Bug 4)
@@ -373,6 +426,8 @@ function resetSession() {
   raceLog = [];
   quickEarQueue = [];
   quickEarLog = [];
+  missedWords = [];
+  _missedLearnIndex = 0;
   _clearQuickEarTimer();
   _qeTimeLeft = QE_ROUND_SECONDS;
   _qeReplayCount = 0;
@@ -386,6 +441,15 @@ async function startSession() {
   resetSession();
   words = getWords();                      // Bug 6: sync
   if (!words.length) { alert('Save some words first!'); return; }
+
+  // Apply the FSRS word-type filter to build this session's pool. The pool is
+  // read-only for games — playing never updates a word's learning status.
+  const filter = getFsrsFilter(selectedGameFilter);
+  sessionPool = words.filter(filter.predicate);
+  if (!sessionPool.length) {
+    alert(`No words match the "${filter.label}" filter. Pick another filter or save more words.`);
+    return;
+  }
 
   const onTick = (val) => {
     const el = document.getElementById('mode-status');
@@ -408,18 +472,18 @@ async function startSession() {
   const onGameOver = () => endSession();
 
   if (selectedMode === 'race') {
-    // Bug 4: build a finite shuffled queue
-    const raceShuffled = shuffled(words);
+    // Bug 4: build a finite shuffled queue (from the filtered pool)
+    const raceShuffled = shuffled(sessionPool);
     raceQueue = raceWordLimit === Infinity ? raceShuffled : raceShuffled.slice(0, raceWordLimit);
-    modeInstance = new RaceMode(onTick, onGameOver);
+    modeInstance = new RaceMode(onTick, onGameOver, RACE_DRAIN_RATES[selectedDifficulty] ?? RACE_DRAIN_RATES.medium);
   } else if (selectedMode === 'survival') {
     modeInstance = new SurvivalMode(onTick, onGameOver);
   } else if (selectedMode === 'mission') {
-    modeInstance = new MissionMode();
+    modeInstance = new MissionMode(MissionMode.objectivesForDifficulty(selectedDifficulty));
   } else if (selectedMode === 'quickear') {
     // Same finite shuffled-queue pattern as Race (Bug 4) — Quick Ear also
     // ends by running out of words, not a continuous clock/objective check.
-    const quickEarShuffled = shuffled(words);
+    const quickEarShuffled = shuffled(sessionPool);
     quickEarQueue = quickEarWordLimit === Infinity ? quickEarShuffled : quickEarShuffled.slice(0, quickEarWordLimit);
     modeInstance = new QuickEarMode();
   }
@@ -445,7 +509,7 @@ function nextRound() {
     if (!quickEarQueue.length) { endSession(); return; }
     currentWord = quickEarQueue.pop();
   } else {
-    currentWord = selectNextWord(words);
+    currentWord = selectNextWord(sessionPool);
     if (!currentWord) { endSession(); return; }
   }
 
@@ -565,6 +629,12 @@ async function processResult(result, revealWord, word) {
     quickEarLog.push({ word, correct: result.correct, skipped: result.skipped });
   }
 
+  // Every mode: collect missed words (wrong, timed out, or skipped — all mean
+  // "didn't produce it") for the post-game "Learn missed words" walkthrough.
+  if (!result.correct && !missedWords.some(w => w.text === word.text)) {
+    missedWords.push(word);
+  }
+
   // Re-render mission objectives immediately after onCorrect/onWrong/onSkip
   const missionEl = document.getElementById('mission-objectives');
   if (selectedMode === 'mission') {
@@ -581,13 +651,14 @@ async function processResult(result, revealWord, word) {
 
   if (isSessionActive) setTimeout(() => nextRound(), 800);
 
+  // Games are status-neutral by design (user decision, 20-07): playing a word
+  // here never changes its learning status — no learningState transition, no
+  // per-word stats write, no FSRS touch. A word drilled in a game is still
+  // due/new/struggling for Review exactly as before the session. Only the
+  // player profile (XP/level/achievements) persists from game play; that's
+  // profile progression, not word status. This also means sessionStats.
+  // wordsMastered stays 0 for games — mastery is earned in Review, not here.
   try {
-    const newState = nextLearningState(word, result);
-    const newStats = updateStats(word.stats, result);
-    if (newState === 'known' && word.learningState !== 'known') sessionStats.wordsMastered += 1;
-    const idx = words.findIndex(w => w.text.toLowerCase() === word.text.toLowerCase());
-    if (idx !== -1) words[idx] = { ...words[idx], learningState: newState, stats: newStats };
-    await updateWord(word.text, { learningState: newState, stats: newStats });
     // Bug 3: reuse xp computed above
     if (xp > 0) await addXP(xp);
   } catch (err) {
@@ -684,5 +755,70 @@ async function endSession(opts = {}) {
     : null;
 
   renderResults(profile, sessionStats, newAchievements, reviewLog, extraScore);
+
+  // "Learn missed words" — only offered when something was actually missed.
+  const learnBtn = document.getElementById('btn-learn-missed');
+  if (learnBtn) {
+    learnBtn.style.display = missedWords.length ? '' : 'none';
+    learnBtn.textContent = `📖 Learn missed words (${missedWords.length})`;
+  }
+  const learnArea = document.getElementById('missed-learn-area');
+  if (learnArea) learnArea.style.display = 'none';
+
   showScreen('screen-results');
+}
+
+// ─── Post-game missed-words walkthrough ─────────────────────────────────────
+// A lightweight flashcard flow over the words missed this session: word +
+// phonetic + audio, translation, native + English definitions, example.
+// Deliberately read-only — browsing these cards doesn't grade anything or
+// touch FSRS/learningState (same status-neutral rule as the games themselves).
+
+function _renderGameFilterPills() {
+  renderFsrsFilterPills('game-filter-pills', getWords(), selectedGameFilter, (id) => {
+    selectedGameFilter = id;
+    _renderGameFilterPills();
+  });
+}
+
+function _openMissedLearn() {
+  if (!missedWords.length) return;
+  _missedLearnIndex = 0;
+  const area = document.getElementById('missed-learn-area');
+  if (area) area.style.display = 'block';
+  _showMissedCard(0);
+}
+
+function _showMissedCard(index) {
+  if (!missedWords.length) return;
+  _missedLearnIndex = Math.max(0, Math.min(missedWords.length - 1, index));
+  const w = missedWords[_missedLearnIndex];
+  const a = w.aiAnalysis || {};
+
+  const counter = document.getElementById('missed-learn-counter');
+  if (counter) counter.textContent = `${_missedLearnIndex + 1} / ${missedWords.length}`;
+
+  const prev = document.getElementById('missed-learn-prev');
+  const next = document.getElementById('missed-learn-next');
+  if (prev) prev.disabled = _missedLearnIndex === 0;
+  if (next) next.disabled = _missedLearnIndex === missedWords.length - 1;
+
+  const card = document.getElementById('missed-learn-card');
+  if (!card) return;
+  card.innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;justify-content:center;">
+      <span style="font-size:24px;font-weight:800;background:linear-gradient(135deg,var(--brand),var(--brand-2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">${escapeHtml(w.text)}</span>
+      ${a.partOfSpeech ? `<span style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;">${escapeHtml(a.partOfSpeech)}</span>` : ''}
+    </div>
+    ${a.pronunciation ? `<div style="font-size:13px;color:var(--text-soft);margin-top:2px;">${escapeHtml(a.pronunciation)}</div>` : ''}
+    <div id="missed-learn-audio" style="margin-top:6px;"></div>
+    ${a.translation ? `<div style="font-size:16px;font-weight:700;color:var(--brand);margin-top:10px;">🌐 ${escapeHtml(a.translation)}</div>` : ''}
+    ${a.definitionTranslated ? `<div style="font-size:13px;color:var(--text-main);margin-top:4px;">${escapeHtml(a.definitionTranslated)}</div>` : ''}
+    ${a.definition ? `<div style="font-size:13px;color:var(--text-muted);margin-top:8px;">${escapeHtml(a.definition)}</div>` : ''}
+    ${a.exampleSentence ? `<div style="font-size:12.5px;font-style:italic;color:var(--text-soft);margin-top:8px;">"${escapeHtml(a.exampleSentence)}"${a.exampleSentenceTranslated ? `<br>"${escapeHtml(a.exampleSentenceTranslated)}"` : ''}</div>` : ''}
+  `;
+  // Speaker button (cached Google TTS audio, Web Speech fallback) — same
+  // helper the vocab list uses, so audio behavior is identical everywhere.
+  const audioSlot = document.getElementById('missed-learn-audio');
+  if (audioSlot) audioSlot.appendChild(createSpeakerButton(w.text, a.audioBase64, 'Play'));
 }

@@ -39,16 +39,16 @@ export async function deleteWord(text) {
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_SETTINGS = {
-  apiKey: '',
   targetLanguage: 'Vietnamese', // fixed: Semantica is English → Vietnamese
   provider: 'freedict',
   theme: 'cyan',
   accentHue: 190,
+  accentColor: null, // full hex from the Settings picker board; accentHue kept as derived back-compat
   darkMode: false,
   visualPreset: null, // Visual Theme preset id (see theme.js VISUAL_PRESET_GROUPS), or null for the plain hue-driven look
 };
 
-/** Get settings from localStorage (with API fallback if token present). */
+/** Get settings from localStorage (synchronous; backend sync happens only on save). */
 export function getSettings() {
   try {
     const stored = localStorage.getItem(SETTINGS_KEY);

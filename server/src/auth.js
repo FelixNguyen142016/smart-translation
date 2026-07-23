@@ -1,7 +1,7 @@
 // server/src/auth.js
 // POST /v1/auth/request — send 6-digit code to email via Resend
 // POST /v1/auth/verify  — verify code, issue opaque bearer token
-// verifyToken()         — middleware helper: header → userId
+// verifyToken()         — middleware helper: header → { userId, isPro }
 
 const CODE_TTL_SECONDS = 600; // 10 minutes
 
@@ -83,7 +83,10 @@ export async function handleAuthVerify(req, env) {
 
 /**
  * Verify a bearer token from an Authorization header.
- * Returns userId string or null.
+ * Returns { userId, isPro, planExpiresAt } or null. isPro/planExpiresAt are
+ * fetched here (not a second query later) so callers get them for free on
+ * every authenticated request — e.g. pro-tier rate limits, or the billing
+ * status endpoint reading straight from request context.
  * @param {string|null} authHeader
  * @param {D1Database} db
  */
@@ -92,8 +95,13 @@ export async function verifyToken(authHeader, db) {
   if (!token) return null;
 
   const tokenHash = await _sha256(token);
-  const user = await db.prepare('SELECT id FROM users WHERE token_hash = ?').bind(tokenHash).first();
-  return user?.id || null;
+  const user = await db.prepare(
+    'SELECT id, plan_expires_at FROM users WHERE token_hash = ?'
+  ).bind(tokenHash).first();
+  if (!user) return null;
+
+  const isPro = !!user.plan_expires_at && user.plan_expires_at > Math.floor(Date.now() / 1000);
+  return { userId: user.id, isPro, planExpiresAt: user.plan_expires_at || null };
 }
 
 // ── Private helpers ────────────────────────────────────────────────────────

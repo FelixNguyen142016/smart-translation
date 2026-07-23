@@ -22,8 +22,9 @@ const MYMEMORY_CODES = {
  * @param {Request} req
  * @param {{ CACHE: KVNamespace, DEEPL_KEY: string }} env
  * @param {string} userId
+ * @param {boolean} isPro
  */
-export async function handleTranslate(req, env, userId) {
+export async function handleTranslate(req, env, userId, isPro = false) {
   let body;
   try { body = await req.json(); } catch {
     return errResponse('Invalid JSON body', 400);
@@ -32,7 +33,7 @@ export async function handleTranslate(req, env, userId) {
   const { text, targetLanguage = 'Spanish' } = body || {};
   if (!text?.trim()) return errResponse('Missing text', 400);
 
-  const rl = await checkRateLimit(env.CACHE, userId, 'translate');
+  const rl = await checkRateLimit(env.CACHE, userId, 'translate', isPro);
   if (!rl.allowed) {
     return errResponse('Daily translation limit reached', 429);
   }

@@ -819,7 +819,61 @@
     /* =====================
        THEME — hue slider
     ====================== */
-    #accent-hue { width: 100%; margin-top: 8px; accent-color: var(--brand); cursor: pointer; }
+    /* ── Game difficulty buttons ── */
+    .difficulty-btn {
+      flex: 1; padding: 8px 10px; border-radius: 8px; cursor: pointer;
+      font-size: 13px; font-weight: 600; font-family: inherit;
+      background: var(--bg-card, var(--card-bg)); color: var(--text-main);
+      border: 1px solid var(--border); transition: all 0.15s;
+    }
+    .difficulty-btn:hover { border-color: var(--brand); }
+    .difficulty-btn.selected {
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      color: #fff; border-color: transparent;
+    }
+
+    /* ── Accent color picker (saturation/brightness board + hue rail) ── */
+    .accent-picker { border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--card-bg); margin-top: 8px; }
+    #accent-board { position: relative; width: 100%; height: 140px; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+    #accent-board .ap-white { position: absolute; inset: 0; background: linear-gradient(to right, #fff, transparent); }
+    #accent-board .ap-black { position: absolute; inset: 0; background: linear-gradient(to bottom, transparent, #000); }
+    #accent-board-thumb {
+      position: absolute; width: 16px; height: 16px; border-radius: 50%;
+      border: 2px solid #fff; transform: translate(-50%, -50%); pointer-events: none;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.4);
+    }
+    .accent-picker-row { padding: 12px 12px 8px; display: flex; align-items: center; gap: 12px; }
+    #accent-current-swatch { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; border: 2px solid var(--card-bg); box-shadow: 0 2px 8px rgba(0,0,0,0.18); }
+    .accent-picker-rails { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+    #accent-hue-rail {
+      position: relative; height: 12px; border-radius: 999px; cursor: pointer; user-select: none; -webkit-user-select: none;
+      background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+    }
+    #accent-hue-thumb {
+      position: absolute; top: 50%; width: 16px; height: 16px; border-radius: 50%;
+      border: 2px solid #fff; transform: translate(-50%, -50%); pointer-events: none;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.2), 0 2px 5px rgba(0,0,0,0.3);
+    }
+    .accent-hex-row { display: flex; align-items: center; gap: 6px; }
+    .accent-hex-row .hex-label { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    #accent-hex-input {
+      flex: 1; padding: 5px 8px; border-radius: 8px; font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      border: 1px solid var(--border); background: var(--muted-bg); color: var(--text-main); outline: none;
+    }
+    #accent-hex-input:focus { border-color: var(--brand); }
+    #accent-hex-input.hex-error { border-color: #ef4444; color: #ef4444; }
+    #accent-rgb-readout { font-size: 9.5px; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+    .accent-preset-wrap { padding: 0 12px 12px; }
+    .accent-preset-wrap .ap-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 8px; }
+    #accent-preset-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+    .accent-preset-swatch {
+      position: relative; width: 100%; aspect-ratio: 1; border-radius: 8px; border: none;
+      cursor: pointer; transition: transform 0.12s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .accent-preset-swatch:hover { transform: scale(1.1); }
+    .accent-preset-swatch:active { transform: scale(0.95); }
 
     /* =====================
        THEME — visual presets
@@ -1149,6 +1203,7 @@
     .state-known    { background: rgba(34,197,94,0.1);   color: #16a34a; }
     .review-def { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     /* ── SRS strip (Review mode) ── */
     .srs-strip-inner { background:var(--card-bg-translucent, rgba(255,255,255,0.92));border:1px solid var(--border);border-radius:14px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px; }
     html.dark .srs-strip-inner { background:var(--card-bg-translucent, rgba(30,41,59,0.90)) !important; }
@@ -1190,25 +1245,25 @@
 
   <!-- Background scattered icons -->
   <!-- Top-left cluster -->
-  <div class="lp-deco" style="top:4%;left:2%;transform:rotate(-15deg);"><img src="./brain (1).svg" width="56" draggable="false"/></div>
+  <div class="lp-deco" style="top:4%;left:2%;transform:rotate(-15deg);"><img src="./brain.svg" width="56" draggable="false"/></div>
   <div class="lp-deco" style="top:14%;left:6%;transform:rotate(22deg);"><img src="./pencil-sparkles.svg" width="40" draggable="false"/></div>
   <div class="lp-deco" style="top:8%;left:14%;transform:rotate(-8deg);"><img src="./notebook-pen.svg" width="48" draggable="false"/></div>
   <div class="lp-deco" style="top:22%;left:2%;transform:rotate(30deg);"><img src="./gamepad-2.svg" width="44" draggable="false"/></div>
-  <div class="lp-deco" style="top:32%;left:10%;transform:rotate(-20deg);"><img src="./book-open-text (1).svg" width="52" draggable="false"/></div>
+  <div class="lp-deco" style="top:32%;left:10%;transform:rotate(-20deg);"><img src="./book-open-text.svg" width="52" draggable="false"/></div>
   <div class="lp-deco" style="top:3%;left:22%;transform:rotate(12deg);"><img src="./monitor-check.svg" width="38" draggable="false"/></div>
 
   <!-- Top-right cluster -->
   <div class="lp-deco" style="top:3%;right:3%;transform:rotate(18deg);"><img src="./pencil-sparkles.svg" width="54" draggable="false"/></div>
-  <div class="lp-deco" style="top:12%;right:8%;transform:rotate(-25deg);"><img src="./brain (1).svg" width="42" draggable="false"/></div>
+  <div class="lp-deco" style="top:12%;right:8%;transform:rotate(-25deg);"><img src="./brain.svg" width="42" draggable="false"/></div>
   <div class="lp-deco" style="top:6%;right:16%;transform:rotate(8deg);"><img src="./gamepad-2.svg" width="46" draggable="false"/></div>
   <div class="lp-deco" style="top:22%;right:2%;transform:rotate(-14deg);"><img src="./monitor-check.svg" width="50" draggable="false"/></div>
   <div class="lp-deco" style="top:30%;right:12%;transform:rotate(28deg);"><img src="./notebook-pen.svg" width="38" draggable="false"/></div>
-  <div class="lp-deco" style="top:2%;right:24%;transform:rotate(-10deg);"><img src="./book-open-text (1).svg" width="44" draggable="false"/></div>
+  <div class="lp-deco" style="top:2%;right:24%;transform:rotate(-10deg);"><img src="./book-open-text.svg" width="44" draggable="false"/></div>
 
   <!-- Bottom-left cluster -->
   <div class="lp-deco" style="bottom:4%;left:3%;transform:rotate(20deg);"><img src="./monitor-check.svg" width="52" draggable="false"/></div>
-  <div class="lp-deco" style="bottom:14%;left:7%;transform:rotate(-18deg);"><img src="./book-open-text (1).svg" width="46" draggable="false"/></div>
-  <div class="lp-deco" style="bottom:6%;left:15%;transform:rotate(10deg);"><img src="./brain (1).svg" width="40" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:14%;left:7%;transform:rotate(-18deg);"><img src="./book-open-text.svg" width="46" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:6%;left:15%;transform:rotate(10deg);"><img src="./brain.svg" width="40" draggable="false"/></div>
   <div class="lp-deco" style="bottom:24%;left:2%;transform:rotate(-28deg);"><img src="./pencil-sparkles.svg" width="48" draggable="false"/></div>
   <div class="lp-deco" style="bottom:3%;left:24%;transform:rotate(16deg);"><img src="./gamepad-2.svg" width="42" draggable="false"/></div>
   <div class="lp-deco" style="bottom:18%;left:13%;transform:rotate(6deg);"><img src="./notebook-pen.svg" width="36" draggable="false"/></div>
@@ -1217,9 +1272,9 @@
   <div class="lp-deco" style="bottom:5%;right:4%;transform:rotate(-16deg);"><img src="./notebook-pen.svg" width="54" draggable="false"/></div>
   <div class="lp-deco" style="bottom:15%;right:9%;transform:rotate(24deg);"><img src="./gamepad-2.svg" width="44" draggable="false"/></div>
   <div class="lp-deco" style="bottom:7%;right:17%;transform:rotate(-8deg);"><img src="./pencil-sparkles.svg" width="40" draggable="false"/></div>
-  <div class="lp-deco" style="bottom:26%;right:3%;transform:rotate(14deg);"><img src="./brain (1).svg" width="48" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:26%;right:3%;transform:rotate(14deg);"><img src="./brain.svg" width="48" draggable="false"/></div>
   <div class="lp-deco" style="bottom:4%;right:25%;transform:rotate(-22deg);"><img src="./monitor-check.svg" width="42" draggable="false"/></div>
-  <div class="lp-deco" style="bottom:20%;right:14%;transform:rotate(30deg);"><img src="./book-open-text (1).svg" width="38" draggable="false"/></div>
+  <div class="lp-deco" style="bottom:20%;right:14%;transform:rotate(30deg);"><img src="./book-open-text.svg" width="38" draggable="false"/></div>
 
   <div class="lp-card">
 
@@ -1454,6 +1509,22 @@
             <div class="mode-desc">Hear the word, type it in 15s. You choose how many.</div>
           </div>
         </div>
+        <!-- Word-type filter (all modes) — which words the session draws from.
+             Same 5 FSRS filters as Review/Practice; games never change a
+             word's learning status, so this is safe drilling. -->
+        <div id="game-filter-wrap" style="margin-top:18px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:8px;">Words to play</div>
+          <div id="game-filter-pills" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+        </div>
+        <!-- Difficulty (Race: timer speed · Mission: objective tier) -->
+        <div id="game-difficulty-wrap" style="margin-top:16px;display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:12px;">
+          <span style="font-size:13px;font-weight:600;color:var(--text-main);">⚡ Difficulty:</span>
+          <div style="display:flex;gap:8px;flex:1;">
+            <button type="button" class="difficulty-btn" data-difficulty="easy">🟢 Easy</button>
+            <button type="button" class="difficulty-btn selected" data-difficulty="medium">🟡 Medium</button>
+            <button type="button" class="difficulty-btn" data-difficulty="hard">🔴 Hard</button>
+          </div>
+        </div>
         <!-- Race word-count picker (hidden for other modes) -->
         <div id="race-word-count-wrap" style="margin-top:20px;display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:12px;">
           <span style="font-size:13px;font-weight:600;color:var(--text-main);">🏁 Words to race through:</span>
@@ -1539,9 +1610,23 @@
       <div class="card" style="max-width:500px;margin:0 auto;text-align:center;">
         <h2 style="margin-top:0">Session Complete! &#127881;</h2>
         <div id="results-content"></div>
-        <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;">
+        <div style="margin-top:24px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
           <button class="btn-primary" id="btn-play-again">Play Again</button>
+          <button class="btn-ghost" id="btn-learn-missed" style="display:none;">📖 Learn missed words</button>
           <button class="btn-ghost" id="btn-back-menu">Menu</button>
+        </div>
+        <!-- Post-game missed-words walkthrough (hidden until opened) -->
+        <div id="missed-learn-area" style="display:none;margin-top:20px;padding:18px;background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:14px;text-align:center;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Learn missed words</span>
+            <span id="missed-learn-counter" style="font-size:12px;font-weight:700;color:var(--brand);"></span>
+          </div>
+          <div id="missed-learn-card"></div>
+          <div style="margin-top:14px;display:flex;gap:10px;justify-content:center;">
+            <button class="btn-ghost" id="missed-learn-prev">← Prev</button>
+            <button class="btn-ghost" id="missed-learn-next">Next →</button>
+            <button class="btn-ghost" id="missed-learn-close">Done</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1611,10 +1696,6 @@
               <div id="acct-status-badge" style="font-size:11px;margin-top:2px;color:var(--success);"></div>
             </div>
           </div>
-          <div style="background:var(--brand-soft);border:1px solid var(--brand-border);border-radius:10px;padding:12px;margin-bottom:14px;">
-            <div style="font-size:12px;font-weight:600;color:var(--brand);margin-bottom:3px;">☁️ Cloud AI Active</div>
-            <div style="font-size:11px;color:var(--text-muted);">Vocabulary syncs across devices. Powered by Claude + DeepL.</div>
-          </div>
           <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--muted-bg);border-radius:10px;margin-bottom:14px;">
             <div>
               <div style="font-size:12px;font-weight:600;margin-bottom:2px;">Sync status</div>
@@ -1637,6 +1718,46 @@
         </div>
       </div>
 
+      <!-- ── Premium card (shown only when logged in) ── -->
+      <div class="card" id="premium-card" style="margin-bottom:16px;display:none;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+          <div style="width:28px;height:28px;border-radius:8px;background:var(--brand-soft);display:flex;align-items:center;justify-content:center;"><i data-lucide="sparkles" style="width:13px;height:13px;color:var(--brand);stroke-width:2.5;"></i></div>
+          <span style="font-weight:700;font-size:14px;">Premium</span>
+        </div>
+
+        <!-- Free — plan picker -->
+        <div id="premium-free-state">
+          <p style="color:var(--text-muted);font-size:13px;margin:0 0 14px;">Unlock unlimited daily lookups and full access to Game mode.</p>
+          <div style="display:flex;gap:8px;">
+            <button class="btn-ghost" id="premium-btn-monthly" style="flex:1;padding:10px 6px;font-size:12px;line-height:1.5;">Monthly<br><strong style="font-size:14px;">99,000₫</strong></button>
+            <button class="btn-primary" id="premium-btn-annual" style="flex:1;padding:10px 6px;font-size:12px;line-height:1.5;">Annual<br><strong style="font-size:14px;">899,000₫</strong></button>
+          </div>
+          <div id="premium-checkout-error" style="color:var(--danger);font-size:12px;margin-top:8px;display:none;"></div>
+        </div>
+
+        <!-- Checkout in progress — QR shown, polling for confirmation -->
+        <div id="premium-checkout-state" style="display:none;text-align:center;">
+          <img id="premium-qr-img" src="" alt="SePay payment QR" style="width:180px;height:180px;border-radius:10px;margin:0 auto 10px;display:block;box-shadow:0 4px 14px rgba(0,0,0,0.12);" />
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;">Transfer content (auto-filled in most banking apps)</div>
+          <div style="font-size:13px;font-weight:700;font-family:monospace;letter-spacing:0.03em;margin-bottom:12px;" id="premium-order-id"></div>
+          <div id="premium-checkout-status" style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;justify-content:center;gap:6px;">
+            <span id="premium-checkout-dot" style="width:6px;height:6px;border-radius:50%;background:var(--brand);animation:pulse 1.4s ease-in-out infinite;"></span>
+            <span id="premium-checkout-status-text">Waiting for payment…</span>
+          </div>
+          <button id="premium-checkout-cancel" class="btn-ghost" style="margin-top:12px;font-size:12px;padding:6px 14px;">Cancel</button>
+        </div>
+
+        <!-- Active plan -->
+        <div id="premium-active-state" style="display:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--muted-bg);border-radius:10px;">
+            <div>
+              <div style="font-size:12px;font-weight:600;">✨ Premium active</div>
+              <div id="premium-expiry" style="font-size:11px;color:var(--text-muted);margin-top:2px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ── Settings card ── -->
       <div class="card">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
@@ -1647,7 +1768,7 @@
         <div class="form-group">
           <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Definition Source</label>
           <select id="ai-provider">
-            <option value="cloud">☁️ Cloud AI — Claude + DeepL (subscription)</option>
+            <option value="cloud">☁️ Cloud AI</option>
             <option value="freedict">Free Dictionary (no account needed)</option>
           </select>
           <div class="api-note" id="provider-note-free" style="margin-top:6px;display:none;">Free English dictionary + unofficial Google Translate. No account needed.</div>
@@ -1658,13 +1779,34 @@
           <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:10px;display:block;">Visual Theme</label>
           <div id="visual-preset-groups"></div>
 
-          <!-- Shown only while "Custom" is the active theme choice (no preset applied) -->
+          <!-- Always visible — accent color stays adjustable even while a
+               visual preset is active (presets only set surfaces/text, the
+               accent remains this picker's job). -->
           <div id="custom-theme-controls" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
             <div class="form-group">
-              <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">
-                Accent Color <span id="hue-preview" style="display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:middle;margin-left:4px;"></span>
-              </label>
-              <input type="range" id="accent-hue" min="0" max="360" value="190" />
+              <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);">Accent Color</label>
+              <div class="accent-picker">
+                <div id="accent-board">
+                  <div class="ap-white"></div>
+                  <div class="ap-black"></div>
+                  <div id="accent-board-thumb"></div>
+                </div>
+                <div class="accent-picker-row">
+                  <div id="accent-current-swatch"></div>
+                  <div class="accent-picker-rails">
+                    <div id="accent-hue-rail"><div id="accent-hue-thumb"></div></div>
+                    <div class="accent-hex-row">
+                      <span class="hex-label">Hex</span>
+                      <input type="text" id="accent-hex-input" maxlength="7" spellcheck="false" placeholder="#000000" />
+                      <span id="accent-rgb-readout"></span>
+                    </div>
+                  </div>
+                </div>
+                <div class="accent-preset-wrap">
+                  <div class="ap-label">Presets</div>
+                  <div id="accent-preset-grid"></div>
+                </div>
+              </div>
             </div>
 
             <div class="form-group" style="margin-bottom:0;">

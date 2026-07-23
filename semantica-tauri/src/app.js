@@ -656,6 +656,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const tableBody    = document.getElementById('word-table-body');
   const emptyState   = document.getElementById('empty-state');
   const tagCloud     = document.getElementById('tag-cloud');
+  const tagTabsEl    = document.getElementById('tag-cloud-tabs');
   const tagChipsEl   = document.getElementById('tag-cloud-chips');
   const filterBar    = document.getElementById('tag-filter-bar');
   const filterLabel  = document.getElementById('tag-filter-label');
@@ -672,13 +673,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   // A→Z / Z→A by word text. Cycled by the sort button in initVocabSearch().
   let _vocabSortOrder = null;
 
+  // Which filter group's chips are currently on screen. Module-level so the
+  // choice survives re-renders (adding a word, toggling a chip, etc.).
+  let _activeFilterGroup = null; // 'band' | 'topic' | 'tag'
+
   function renderTagCloud(allWords) {
     if (!allWords) allWords = getWords().slice();
 
-    const bandColors   = { 2:'#64748b',3:'#64748b',5:'#0d9488',6:'#0891b2',7:'#7c3aed',8:'#b45309',9:'#b91c1c' };
-    const bandCounts   = new Map(); // band number → word count
-    const topicCounts  = new Map(); // topic string → word count
-    const tagCounts    = new Map(); // tag string → word count
+    const bandColors  = { 2:'#64748b',3:'#64748b',5:'#0d9488',6:'#0891b2',7:'#7c3aed',8:'#b45309',9:'#b91c1c' };
+    const bandCounts  = new Map(); // band number → word count
+    const topicCounts = new Map(); // topic string → word count
+    const tagCounts   = new Map(); // tag string → word count
 
     allWords.forEach(w => {
       const ielts = lookupIelts(w.text);
@@ -691,98 +696,95 @@ document.addEventListener('DOMContentLoaded', async () => {
         tagCounts.set(t, (tagCounts.get(t) || 0) + 1));
     });
 
-    const hasBands  = bandCounts.size > 0;
-    const hasTopics = topicCounts.size > 0;
-    const hasTags   = tagCounts.size > 0;
+    // Each group renders as its own tab so only one set of chips shows at a
+    // time — three stacked rows made the strip feel cramped, a single roomy
+    // panel per group does not.
+    const groups = [
+      { key: 'band',  label: 'By IELTS band', icon: '🎯', counts: bandCounts,  selected: selectedBands  },
+      { key: 'topic', label: 'By IELTS topic', icon: '📚', counts: topicCounts, selected: selectedTopics },
+      { key: 'tag',   label: 'By AI topic',    icon: '✨', counts: tagCounts,   selected: selectedTags   },
+    ].filter(g => g.counts.size > 0);
 
-    if (!hasBands && !hasTopics && !hasTags) { tagCloud.style.display = 'none'; return; }
+    if (!groups.length) { tagCloud.style.display = 'none'; return; }
 
     tagCloud.style.display = 'block';
+
+    // Keep the active tab if it's still available; otherwise land on a group
+    // that already has a selection, falling back to the first available tab.
+    if (!groups.some(g => g.key === _activeFilterGroup)) {
+      _activeFilterGroup = (groups.find(g => g.selected.size > 0) || groups[0]).key;
+    }
+
+    // ── Tab strip ────────────────────────────────────────────────────────────
+    tagTabsEl.innerHTML = '';
+    groups.forEach(g => {
+      const tab = document.createElement('button');
+      tab.className = 'filter-tab' + (g.key === _activeFilterGroup ? ' active' : '') + (g.selected.size > 0 ? ' has-selection' : '');
+      tab.innerHTML = `<span class="filter-tab-icon">${g.icon}</span>${g.label}<span class="filter-tab-count">${g.counts.size}</span><span class="filter-tab-dot"></span>`;
+      tab.addEventListener('click', () => { _activeFilterGroup = g.key; renderTagCloud(allWords); });
+      tagTabsEl.appendChild(tab);
+    });
+
+    // ── Active group's chip panel ─────────────────────────────────────────────
     tagChipsEl.innerHTML = '';
+    const panel = document.createElement('div');
+    panel.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;max-height:80px;overflow:hidden;';
 
-    // ── Row 1: Band filter pills ──────────────────────────────────────────────
-    if (hasBands) {
-      const bandRow = document.createElement('div');
-      bandRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;';
+    const active = groups.find(g => g.key === _activeFilterGroup);
 
+    if (active.key === 'band') {
       [...bandCounts.entries()].sort((a, b) => a[0] - b[0]).forEach(([band, count]) => {
         const bc  = bandColors[band] || '#64748b';
         const btn = document.createElement('button');
-        btn.className = 'tag-chip' + (selectedBands.has(band) ? ' active' : '');
+        btn.className = 'tag-chip tag-chip-lg' + (selectedBands.has(band) ? ' active' : '');
         btn.style.cssText = `background:linear-gradient(${bc}22,${bc}22), var(--muted-bg);color:${bc};border-color:${bc}40;font-weight:700;letter-spacing:0.03em;`;
         btn.innerHTML = `Band ${band} <span class="tag-count" style="background:linear-gradient(${bc}35,${bc}35), var(--muted-bg);color:${bc};">${count}</span>`;
         btn.addEventListener('click', () => {
           if (selectedBands.has(band)) selectedBands.delete(band); else selectedBands.add(band);
           renderWords();
         });
-        bandRow.appendChild(btn);
+        panel.appendChild(btn);
       });
-      tagChipsEl.appendChild(bandRow);
-    }
-
-    // ── Row 2: IELTS topic filter chips ──────────────────────────────────────
-    if (hasTopics) {
-      const topicRow = document.createElement('div');
-      topicRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;';
-
+    } else if (active.key === 'topic') {
       [...topicCounts.entries()].sort((a, b) => b[1] - a[1]).forEach(([topic, count]) => {
         const btn = document.createElement('button');
-        btn.className = 'tag-chip' + (selectedTopics.has(topic) ? ' active' : '');
-        btn.style.cssText = 'background:linear-gradient(rgba(99,102,241,0.14),rgba(99,102,241,0.14)), var(--muted-bg);color:#818cf8;border-color:rgba(99,102,241,0.3);';
-        btn.innerHTML = `${escapeHtml(topic)} <span class="tag-count" style="background:linear-gradient(rgba(99,102,241,0.22),rgba(99,102,241,0.22)), var(--muted-bg);color:#818cf8;">${count}</span>`;
+        btn.className = 'tag-chip tag-chip-lg tag-chip-topic' + (selectedTopics.has(topic) ? ' active' : '');
+        btn.innerHTML = `${escapeHtml(topic)} <span class="tag-count">${count}</span>`;
         btn.addEventListener('click', () => {
           if (selectedTopics.has(topic)) selectedTopics.delete(topic); else selectedTopics.add(topic);
           renderWords();
         });
-        topicRow.appendChild(btn);
+        panel.appendChild(btn);
       });
-      tagChipsEl.appendChild(topicRow);
-    }
-
-    // ── Divider ───────────────────────────────────────────────────────────────
-    if ((hasBands || hasTopics) && hasTags) {
-      const sep = document.createElement('div');
-      sep.style.cssText = 'height:1px;background:var(--border);margin-bottom:8px;opacity:0.5;';
-      tagChipsEl.appendChild(sep);
-    }
-
-    // ── Row 3: Auto-generated tags — max 2 lines, "See more" to expand ───────
-    if (hasTags) {
-      const tagsOuter = document.createElement('div');
-
-      const tagsRow = document.createElement('div');
-      tagsRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;max-height:64px;overflow:hidden;';
-
+    } else {
       [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).forEach(([tag, count]) => {
         const btn = document.createElement('button');
-        btn.className = 'tag-chip' + (selectedTags.has(tag) ? ' active' : '');
+        btn.className = 'tag-chip tag-chip-lg' + (selectedTags.has(tag) ? ' active' : '');
         btn.innerHTML = `${escapeHtml(tag)} <span class="tag-count">${count}</span>`;
         btn.addEventListener('click', () => {
           if (selectedTags.has(tag)) selectedTags.delete(tag); else selectedTags.add(tag);
           renderWords();
         });
-        tagsRow.appendChild(btn);
-      });
-
-      tagsOuter.appendChild(tagsRow);
-
-      const seeMoreBtn = document.createElement('button');
-      seeMoreBtn.style.cssText = 'display:none;margin-top:6px;font-size:11px;font-weight:600;color:var(--brand);background:none;border:none;cursor:pointer;padding:0;font-family:inherit;';
-      seeMoreBtn.textContent = 'See more ↓';
-      let tagsExpanded = false;
-      seeMoreBtn.onclick = () => {
-        tagsExpanded = !tagsExpanded;
-        tagsRow.style.maxHeight = tagsExpanded ? 'none' : '64px';
-        seeMoreBtn.textContent  = tagsExpanded ? 'See less ↑' : 'See more ↓';
-      };
-      tagsOuter.appendChild(seeMoreBtn);
-      tagChipsEl.appendChild(tagsOuter);
-
-      // Show "See more" only when content actually overflows 2 lines
-      requestAnimationFrame(() => {
-        if (tagsRow.scrollHeight > 68) seeMoreBtn.style.display = 'block';
+        panel.appendChild(btn);
       });
     }
+
+    tagChipsEl.appendChild(panel);
+
+    // "See more" only appears once the active panel actually overflows 2 lines
+    const seeMoreBtn = document.createElement('button');
+    seeMoreBtn.className = 'filter-see-more';
+    seeMoreBtn.textContent = 'See more ↓';
+    let expanded = false;
+    seeMoreBtn.onclick = () => {
+      expanded = !expanded;
+      panel.style.maxHeight = expanded ? 'none' : '80px';
+      seeMoreBtn.textContent = expanded ? 'See less ↑' : 'See more ↓';
+    };
+    tagChipsEl.appendChild(seeMoreBtn);
+    requestAnimationFrame(() => {
+      if (panel.scrollHeight > 84) seeMoreBtn.style.display = 'block';
+    });
   }
 
   function updateFilterBar(filteredCount) {

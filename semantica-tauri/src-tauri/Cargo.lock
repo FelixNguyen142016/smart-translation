@@ -3024,7 +3024,7 @@ dependencies = [
 
 [[package]]
 name = "semantica-tauri"
-version = "1.4.0"
+version = "1.6.3"
 dependencies = [
  "serde",
  "serde_json",

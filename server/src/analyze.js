@@ -85,18 +85,31 @@ async function _getOrBuildEnglishContent(text, context, env) {
   }
 
   const [defResult, classifyResult, ttsResult, synResult, ipaResult] = await Promise.allSettled([
-    _callGPTDefinition(text, context, env.TOKENAI_KEY, env.TOKENAI_BASE_URL),
+    _callGPTDefinition(text, context, env),
     _callClaudeClassify(text, context, env.ANTHROPIC_KEY),
     _callGoogleTTS(text, env.GOOGLE_TTS_KEY),
     _callDatamuse(text),
     _getIPA(env.CACHE, text),
   ]);
 
-  if (defResult.status === 'rejected') {
-    throw new Error(defResult.reason?.message || 'Definition call failed');
+  // GPT (token.ai.vn) is the primary definition provider for cost reasons,
+  // but a provider/config/token failure there must not take the whole product
+  // down — Claude generated definitions solo before the provider split and
+  // still can. Fall back to Claude with the same definition prompt; only if
+  // BOTH providers fail does the lookup error out.
+  let analysis;
+  if (defResult.status === 'fulfilled') {
+    analysis = defResult.value;
+  } else {
+    console.error(`GPT definition failed for "${text}" (falling back to Claude): ${defResult.reason?.message || defResult.reason}`);
+    try {
+      analysis = await _claudeDefinitionFallback(text, context, env.ANTHROPIC_KEY);
+    } catch (claudeErr) {
+      throw new Error(
+        `Definition failed on both providers — GPT: ${defResult.reason?.message || defResult.reason}; Claude fallback: ${claudeErr.message}`
+      );
+    }
   }
-
-  const analysis = defResult.value;
 
   // Register tags + IELTS topics from Claude (silent empty-array fallback —
   // a classification miss shouldn't fail the whole lookup)
@@ -335,7 +348,8 @@ const ANTHROPIC_GATEWAY_URL = 'https://gateway.ai.cloudflare.com/v1/eeebef75914e
 // a hardcoded guess — confirm the exact base URL against token.ai.vn's own
 // docs before deploying; if it differs from the OpenAI contract (different
 // path, different auth header), this function needs adjusting to match.
-async function _callGPTDefinition(text, context, apiKey, baseUrl) {
+async function _callGPTDefinition(text, context, env) {
+  const apiKey = env.TOKENAI_KEY, baseUrl = env.TOKENAI_BASE_URL;
   if (!apiKey) throw new Error('TOKENAI_KEY is not set on this environment (check `wrangler secret list`)');
   if (!baseUrl) throw new Error('TOKENAI_BASE_URL is not set on this environment (check `wrangler.toml` [vars])');
 
@@ -346,7 +360,10 @@ async function _callGPTDefinition(text, context, apiKey, baseUrl) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      // Must be a model the token's account actually exposes — see
+      // TOKENAI_MODEL in wrangler.toml. An unavailable model is refused by
+      // One Hub even with valid auth.
+      model: env.TOKENAI_MODEL || 'gpt-4.1-mini',
       // Definition output is output-token-heavy (~110 tokens); 400 is a
       // safety cap, matching the old Claude call's cap for this same job.
       max_tokens: 400,
@@ -363,7 +380,28 @@ async function _callGPTDefinition(text, context, apiKey, baseUrl) {
     throw new Error(`GPT definition API ${res.status}: ${err.slice(0, 300)}`);
   }
 
-  const data = await res.json();
+  // A 200 response can still be non-JSON if TOKENAI_BASE_URL points at a page
+  // that doesn't actually implement /chat/completions (e.g. the marketing
+  // site root instead of the API host) — many sites fall back to serving
+  // their normal HTML with a 200 rather than a 404. Reading as text first
+  // and checking the content-type turns that into a clear config error
+  // instead of a cryptic "Unexpected token '<'" JSON parse failure.
+  const contentType = res.headers.get('content-type') || '';
+  const rawBody = await res.text();
+  if (!contentType.includes('application/json')) {
+    throw new Error(
+      `TOKENAI_BASE_URL ("${baseUrl}") did not return JSON from /chat/completions — got content-type "${contentType}". ` +
+      `This usually means the base URL is wrong (pointing at a webpage, not the API host). Response started with: ${rawBody.slice(0, 200)}`
+    );
+  }
+
+  let data;
+  try {
+    data = JSON.parse(rawBody);
+  } catch {
+    throw new Error(`GPT definition API returned invalid JSON despite a JSON content-type. Response started with: ${rawBody.slice(0, 200)}`);
+  }
+
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error('Empty GPT definition response');
 
@@ -384,6 +422,46 @@ async function _callGPTDefinition(text, context, apiKey, baseUrl) {
  * non-fatal to the caller (see _getOrBuildEnglishContent) — it degrades to
  * empty tags/topics rather than failing the whole lookup.
  */
+/**
+ * Fallback definition generator: same definition prompt as GPT, run on
+ * Claude Haiku (which handled definitions solo before the provider split).
+ * Only invoked when _callGPTDefinition fails — keeps the app alive through
+ * token.ai.vn outages/misconfiguration at Claude's (higher) token cost.
+ */
+async function _claudeDefinitionFallback(text, context, apiKey) {
+  const res = await fetch(ANTHROPIC_GATEWAY_URL, {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 400, // same cap as the GPT definition call
+      system: definitionSystemPrompt(),
+      messages: [{ role: 'user', content: userMessage(text, context) }],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => '');
+    throw new Error(`Claude definition API ${res.status}: ${err.slice(0, 300)}`);
+  }
+
+  const data = await res.json();
+  const content = data.content?.[0]?.text;
+  if (!content) throw new Error('Empty Claude definition response');
+
+  try {
+    return JSON.parse(content);
+  } catch {
+    const match = content.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error('Claude definition response was not valid JSON');
+  }
+}
+
 async function _callClaudeClassify(text, context, apiKey) {
   const res = await fetch(ANTHROPIC_GATEWAY_URL, {
     method: 'POST',

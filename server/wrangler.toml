@@ -35,11 +35,18 @@ mode = "smart"
 SEPAY_BANK_ACCOUNT = "0393899818"
 SEPAY_BANK_NAME = "MBBank"
 # Base URL for the token.ai.vn OpenAI-compatible endpoint (definition/example
-# generation, see _callGPTDefinition in analyze.js). CONFIRM THIS against
-# token.ai.vn's own docs before deploying — the code assumes the standard
-# OpenAI Chat Completions contract (POST {base}/chat/completions), which may
-# not match exactly. Not secret — it's just a hostname, like the DeepL host.
-TOKENAI_BASE_URL = "https://token.ai.vn"
+# generation, see _callGPTDefinition in analyze.js). Confirmed via curl test:
+# token.ai.vn runs "One Hub" (a self-hosted OpenAI-proxy gateway), which uses
+# the standard OpenAI path convention — POST {base}/v1/chat/completions, hence
+# the /v1 baked into this URL (analyze.js appends only "/chat/completions").
+# Not secret — it's just a hostname, like the DeepL host.
+TOKENAI_BASE_URL = "https://token.ai.vn/v1"
+# Model requested from token.ai.vn. Must be one of the models the account's
+# token actually exposes (the "Loaded N models from your account" list in any
+# OpenAI-compatible client) — requesting an unavailable model makes One Hub
+# refuse the call even with valid auth. gpt-4.1-mini confirmed available on
+# this account (20-07).
+TOKENAI_MODEL = "gpt-4.1-mini"
 
 # ── Secrets (never commit actual values) ──────────────────────────────────────
 # After setup, run:

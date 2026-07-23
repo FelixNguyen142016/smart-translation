@@ -1,6 +1,6 @@
 [package]
 name = "semantica-tauri"
-version = "1.6.1"
+version = "1.6.3"
 description = "Semantica — AI vocabulary builder for B2–C1 English learners"
 edition = "2021"
 
